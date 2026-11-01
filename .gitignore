@@ -1,0 +1,11 @@
+config.json
+*.local.json
+runtime-data/
+client-data/
+__pycache__/
+*.pyc
+*.token
+*.log
+*.zip
+dist/
+.venv/
