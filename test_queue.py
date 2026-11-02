@@ -2,10 +2,19 @@
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from queue_store import QueueStore
 from worker import Controller
+
+class IdleReached(BaseException):pass
+
+class DrainFixture(Controller):
+    def phase(self,phase,**extra):
+        super().phase(phase,**extra)
+        if phase.startswith('队列为空'):raise IdleReached()
 
 
 class QueueTests(unittest.TestCase):
@@ -24,7 +33,8 @@ class QueueTests(unittest.TestCase):
 
     def test_cancel_middle_keeps_independent_jobs_executable(self):
         self.store.cancel('task-b')
-        Controller(self.store,dict(refresh_seconds=.01,stop_on_failure=True)).run()
+        with self.assertRaises(IdleReached):
+            DrainFixture(self.store,dict(refresh_seconds=.01,stop_on_failure=True)).run()
         value=self.store.read()
         self.assertEqual(value['tasks']['task-b']['state'],'canceled')
         self.assertEqual(value['tasks']['task-a']['state'],'completed')
@@ -50,6 +60,35 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(value['order'],['task-b','task-c'])
         self.assertTrue(all(value['tasks'][i]['state']=='waiting' for i in value['order']))
         self.assertEqual(json.loads((self.store.directory/'jobs/task-a/receipt.json').read_text())['returncode'],3)
+
+    def test_empty_queue_remains_alive_and_runs_later_CPU_commands(self):
+        for task in self.tasks:self.store.cancel(task['id'])
+        idle=threading.Event();stop=threading.Event()
+        class PersistentFixture(Controller):
+            def phase(self,phase,**extra):
+                super().phase(phase,**extra)
+                if phase.startswith('队列为空'):idle.set()
+                if stop.is_set():raise SystemExit()
+        worker=PersistentFixture(self.store,dict(refresh_seconds=.01,stop_on_failure=True))
+        thread=threading.Thread(target=worker.run);thread.start()
+        try:
+            self.assertTrue(idle.wait(2));self.assertTrue(thread.is_alive())
+            for task_id in ['late-a','late-b']:
+                idle.clear()
+                def append(value):
+                    value['tasks'][task_id]=dict(self.tasks[0],id=task_id,state='waiting')
+                    value['order'].append(task_id)
+                self.store.change(append)
+                deadline=time.monotonic()+4
+                while self.store.read()['tasks'][task_id]['state']!='completed':
+                    self.assertTrue(thread.is_alive())
+                    if time.monotonic()>deadline:self.fail('late CPU task did not complete')
+                    time.sleep(.01)
+                self.assertTrue(idle.wait(2))
+                self.assertEqual(json.loads((self.store.directory/'jobs'/task_id/'receipt.json').read_text())['returncode'],0)
+            self.assertTrue(thread.is_alive())
+        finally:stop.set();thread.join(2)
+        self.assertFalse(thread.is_alive())
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

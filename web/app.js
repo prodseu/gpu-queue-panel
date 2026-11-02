@@ -5,6 +5,7 @@ let token=new URLSearchParams(location.hash.slice(1)).get('token')||sessionStora
 if(token)sessionStorage.setItem('gpu-queue-local-token',token);
 if(location.hash.startsWith('#token='))history.replaceState(null,'',location.pathname);
 let state=null,dragging=null,busy=false,mutating=false,messageUntil=0;
+let selectedGpu=sessionStorage.getItem('gpu-queue-view')||null;
 const clock=t=>t?new Date(t*1000).toLocaleTimeString('zh-CN',{hour12:false}):'—';
 const number=(n,d=1)=>n==null?'—':n.toFixed(d);
 const bar=(n,extra='')=>`<div class="bar ${extra}"><div class="fill" data-width="${Math.max(0,Math.min(100,n||0))}"></div></div>`;
@@ -43,19 +44,45 @@ function drawGPUCharts(){
 }
 function notice(s){messageUntil=Date.now()+7000;$('#notice').textContent=s;}
 async function api(action,payload={}){const r=await fetch('/api/queue',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({action,...payload})});const data=await r.json();if(!r.ok){if(r.status===403&&!$('#auth-dialog').open)$('#auth-dialog').showModal();throw new Error(data.error||'连接失败');}return data;}
+const gpuKey=g=>g.uuid||'index:'+g.index;
+const onGPU=(t,g)=>t.gpu_uuid?Boolean(g.uuid&&t.gpu_uuid===g.uuid):t.gpu!=null&&Number(t.gpu)===g.index;
+function selectGPU(key){selectedGpu=key;if(key)sessionStorage.setItem('gpu-queue-view',key);else sessionStorage.removeItem('gpu-queue-view');render();}
+function mergedOrder(ids){
+ if(!selectedGpu)return ids;
+ const visible=new Set(ids);let next=0;
+ return state.tasks.filter(t=>t.state==='waiting').map(t=>visible.has(t.id)?ids[next++]:t.id);
+}
 function render(){
  gpuHistory=state.gpu_history||{};
- const pending=state.tasks.filter(t=>t.state==='waiting');$('#connection').textContent='● 本机连接 · SSH';$('#connection').classList.remove('offline');$('#sampled').textContent='GPU 更新 '+clock(state.sampled);$('#count').textContent=state.tasks.length;
+ const focused=document.activeElement?.dataset.gpuSelect;
+ let device=state.gpus.find(g=>gpuKey(g)===selectedGpu);
+ if(selectedGpu&&!device&&!state.gpu_error){selectedGpu=null;sessionStorage.removeItem('gpu-queue-view');notice('所选显卡不在当前快照中，已切回总队列。');}
+ const visible=selectedGpu?(device?state.tasks.filter(t=>onGPU(t,device)):[]):state.tasks;
+ const allPending=state.tasks.filter(t=>t.state==='waiting'),pending=visible.filter(t=>t.state==='waiting');
+ $('#connection').textContent='● 本机连接 · SSH';$('#connection').classList.remove('offline');$('#sampled').textContent='GPU 更新 '+clock(state.sampled);$('#count').textContent=visible.length;
+ $('#queue-title').textContent=selectedGpu?(device?'GPU '+device.index+' · 我的队列':'显卡暂不可用'):'总队列';
+ $('#queue-scope').textContent=selectedGpu?(device?device.name:'等待显卡快照恢复'):'全部显卡与CPU任务';
+ $('#all-queues').setAttribute('aria-pressed',String(!selectedGpu));
+ $('#queue-hint').textContent=selectedGpu?'只显示这张显卡的当前任务。卡内重排保留其他卡任务在总队列中的位置。':'显示所有当前任务。拖动或点击箭头调整等待顺序，取消只移除该项。';
  if(Date.now()>messageUntil)$('#notice').textContent=state.gpu_error||((Date.now()/1000-state.sampled>15)?'服务器快照暂未更新，正在重连。':'');
- $('#gpus').innerHTML=state.gpus.map(g=>`<article class="gpu"><div class="gpu-title">GPU ${g.index}<small>最近 5 分钟</small></div><div class="gpu-name">${esc(g.name)}</div><div class="metric"><label>显存用量</label><strong>${number(g.memory_used_mib==null?null:g.memory_used_mib/1024)}<small> / ${number(g.memory_total_mib==null?null:g.memory_total_mib/1024)} GiB</small></strong></div><div class="metric"><label>计算利用率</label><strong>${number(g.utilization,0)}<small> %</small></strong></div><div class="chart-legend"><span class="compute-key">计算 GPU-Util</span><span class="memory-key">显存占用率</span></div><canvas class="gpu-chart" data-gpu="${esc(g.uuid)}" aria-label="GPU ${g.index} 最近5分钟计算利用率和显存占用率，纵轴0至100%"></canvas></article>`).join('');
- $('#tasks').innerHTML=state.tasks.length?`<div class="task-table"><div class="task-head"><span></span><span>我的任务</span><span>状态</span><span>设备</span><span>训练进度</span><span>调整等待项</span></div>${state.tasks.map(t=>{const running=t.state==='running',p=t.progress,index=pending.findIndex(x=>x.id===t.id),current=p.status.updates;return `<div class="task ${running?'running':''}" data-id="${esc(t.id)}" draggable="${!running}"><span class="drag">${running?'●':'⠿'}</span><div><div class="task-name">${esc(t.name)}</div><div class="task-id">${esc(t.id)}</div></div><div><span class="badge">${running?'运行中':'等待 '+(index+1)}</span></div><div class="gpu-cell">GPU ${t.gpu}</div><div><div class="progress-text"><span>${p.percent==null?'尚未开始':p.percent.toFixed(1)+'%'}</span><span>${current==null?'':current+' / '+t.updates}</span></div>${bar(p.percent)}<div class="task-id">${p.status.epoch?'第 '+p.status.epoch+' / '+t.epochs+' 轮':''}</div></div><div class="actions">${running?'':`<button data-move="-1" data-id="${esc(t.id)}" ${index===0?'disabled':''} title="上移">↑</button><button data-move="1" data-id="${esc(t.id)}" ${index===pending.length-1?'disabled':''} title="下移">↓</button><button data-cancel="${esc(t.id)}">取消</button>`}</div></div>`;}).join('')}</div>`:'<div class="empty">当前没有等待或运行中的任务。</div>';
- $('#controller').textContent=state.controller||'';$$('.fill').forEach(e=>e.style.width=e.dataset.width+'%');
- drawGPUCharts();
+ $('#gpus').innerHTML=state.gpus.length?state.gpus.map(g=>{
+  const tasks=state.tasks.filter(t=>onGPU(t,g)),running=tasks.filter(t=>t.state==='running').length,waiting=tasks.filter(t=>t.state==='waiting').length;
+  return `<button type="button" class="gpu" data-gpu-select="${esc(gpuKey(g))}" aria-pressed="${gpuKey(g)===selectedGpu}" aria-label="GPU ${g.index}，运行 ${running} 项，等待 ${waiting} 项，查看该卡队列"><div class="gpu-title">GPU ${g.index}<small>最近 5 分钟</small></div><div class="gpu-name">${esc(g.name)}</div><div class="gpu-queue-summary"><span>运行 <b>${running}</b> · 等待 <b>${waiting}</b></span><span class="gpu-open">查看队列 →</span></div><div class="metric"><span class="metric-label">显存用量</span><strong>${number(g.memory_used_mib==null?null:g.memory_used_mib/1024)}<small> / ${number(g.memory_total_mib==null?null:g.memory_total_mib/1024)} GiB</small></strong></div><div class="metric"><span class="metric-label">计算利用率</span><strong>${number(g.utilization,0)}<small> %</small></strong></div><div class="chart-legend"><span class="compute-key">计算 GPU-Util</span><span class="memory-key">显存占用率</span></div><canvas class="gpu-chart" data-gpu="${esc(g.uuid)}" aria-label="GPU ${g.index} 最近5分钟计算利用率和显存占用率，纵轴0至100%"></canvas></button>`;
+ }).join(''):`<div class="empty gpu-discovery">${state.gpu_error?'显卡状态暂不可用，正在重连。':'暂未检测到NVIDIA显卡，仍可查看总队列。'}</div>`;
+ $('#tasks').innerHTML=visible.length?`<div class="task-table"><div class="task-head"><span></span><span>我的任务</span><span>状态</span><span>设备</span><span>训练进度</span><span>调整等待项</span></div>${visible.map(t=>{
+  const running=t.state==='running',p=t.progress||{},status=p.status||{},index=pending.findIndex(x=>x.id===t.id),current=status.updates;
+  const gpu=state.gpus.find(g=>onGPU(t,g)),label=gpu?'GPU '+gpu.index:t.gpu_uuid?'GPU 暂不可用':t.gpu!=null?'GPU '+t.gpu:'CPU';
+  return `<div class="task ${running?'running':''}" data-id="${esc(t.id)}" draggable="${!running}"><span class="drag">${running?'●':'⠿'}</span><div><div class="task-name">${esc(t.name)}</div><div class="task-id">${esc(t.id)}</div></div><div><span class="badge">${running?'运行中':'等待 '+(index+1)}</span>${selectedGpu&&!running?`<div class="global-order">总序 ${allPending.findIndex(x=>x.id===t.id)+1}</div>`:''}</div><div class="gpu-cell">${label}</div><div><div class="progress-text"><span>${p.percent==null?'尚未开始':p.percent.toFixed(1)+'%'}</span><span>${current==null?'':current+' / '+t.updates}</span></div>${bar(p.percent)}<div class="task-id">${status.epoch?'第 '+status.epoch+' / '+t.epochs+' 轮':''}</div></div><div class="actions">${running?'':`<button data-move="-1" data-id="${esc(t.id)}" ${index===0?'disabled':''} title="上移">↑</button><button data-move="1" data-id="${esc(t.id)}" ${index===pending.length-1?'disabled':''} title="下移">↓</button><button data-cancel="${esc(t.id)}">取消</button>`}</div></div>`;
+ }).join('')}</div>`:`<div class="empty">${selectedGpu?'这张显卡没有你的运行或等待任务。':'当前没有等待或运行中的任务。'}</div>`;
+ $('#controller').textContent=state.controller||'';$$('.fill').forEach(e=>e.style.width=e.dataset.width+'%');drawGPUCharts();
+ $$('[data-gpu-select]').forEach(e=>e.addEventListener('click',()=>selectGPU(e.dataset.gpuSelect)));
+ if(focused)$$('[data-gpu-select]').find(e=>e.dataset.gpuSelect===focused)?.focus({preventScroll:true});
  $$('[data-cancel]').forEach(e=>e.addEventListener('click',()=>change('cancel',{id:e.dataset.cancel},'已取消该等待项，其他任务不变。')));
- $$('[data-move]').forEach(e=>e.addEventListener('click',()=>{const ids=pending.map(t=>t.id),i=ids.indexOf(e.dataset.id),to=i+Number(e.dataset.move);if(to<0||to>=ids.length)return;[ids[i],ids[to]]=[ids[to],ids[i]];change('reorder',{ids},'等待顺序已保存。');}));
- $$('.task[draggable=true]').forEach(e=>{e.addEventListener('dragstart',v=>{dragging=e.dataset.id;v.dataTransfer.setData('text/plain',dragging);e.classList.add('dragging');});e.addEventListener('dragend',()=>{dragging=null;e.classList.remove('dragging');$$('.drop').forEach(x=>x.classList.remove('drop'));});e.addEventListener('dragover',v=>{v.preventDefault();e.classList.add('drop');});e.addEventListener('dragleave',()=>e.classList.remove('drop'));e.addEventListener('drop',v=>{v.preventDefault();const ids=pending.map(t=>t.id),from=ids.indexOf(v.dataTransfer.getData('text/plain')),to=ids.indexOf(e.dataset.id);dragging=null;if(from<0||to<0||from===to)return;const[id]=ids.splice(from,1);ids.splice(to,0,id);change('reorder',{ids},'等待顺序已保存。');});});
+ $$('[data-move]').forEach(e=>e.addEventListener('click',()=>{const ids=pending.map(t=>t.id),i=ids.indexOf(e.dataset.id),to=i+Number(e.dataset.move);if(to<0||to>=ids.length)return;[ids[i],ids[to]]=[ids[to],ids[i]];change('reorder',{ids:mergedOrder(ids)},'等待顺序已保存。');}));
+ $$('.task[draggable=true]').forEach(e=>{e.addEventListener('dragstart',v=>{dragging=e.dataset.id;v.dataTransfer.setData('text/plain',dragging);e.classList.add('dragging');});e.addEventListener('dragend',()=>{dragging=null;e.classList.remove('dragging');$$('.drop').forEach(x=>x.classList.remove('drop'));});e.addEventListener('dragover',v=>{v.preventDefault();e.classList.add('drop');});e.addEventListener('dragleave',()=>e.classList.remove('drop'));e.addEventListener('drop',v=>{v.preventDefault();const ids=pending.map(t=>t.id),from=ids.indexOf(v.dataTransfer.getData('text/plain')),to=ids.indexOf(e.dataset.id);dragging=null;if(from<0||to<0||from===to)return;const[id]=ids.splice(from,1);ids.splice(to,0,id);change('reorder',{ids:mergedOrder(ids)},'等待顺序已保存。');});});
 }
 async function change(action,payload,text){if(mutating)return;mutating=true;try{state=await api(action,{...payload,revision:state.revision});notice(text);render();}catch(e){notice(e.message);}finally{mutating=false;await refresh();}}
 async function refresh(){if(busy||dragging||mutating)return;busy=true;try{state=await api('state');render();}catch(e){$('#connection').textContent='● 正在重连';$('#connection').classList.add('offline');notice(e.message);}finally{busy=false;}}
+$('#all-queues').addEventListener('click',()=>selectGPU(null));
 $('#auth-form').addEventListener('submit',e=>{e.preventDefault();token=$('#auth-token').value.trim();sessionStorage.setItem('gpu-queue-local-token',token);$('#auth-dialog').close();refresh();});refresh();setInterval(refresh,3000);
 window.addEventListener('resize',drawGPUCharts);

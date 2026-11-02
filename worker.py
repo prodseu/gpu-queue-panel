@@ -51,7 +51,8 @@ class Controller:
             while True:
                 value=self.store.read()
                 if not value['order']:
-                    self.phase('当前队列已结束');return
+                    self.phase('队列为空，持续待命；新任务加入后自动接续')
+                    time.sleep(self.config['refresh_seconds']);continue
                 candidate=value['tasks'][value['order'][0]]
                 if not self.available(candidate):
                     self.phase('等待指定GPU空闲');time.sleep(self.config['refresh_seconds']);continue

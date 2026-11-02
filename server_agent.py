@@ -28,7 +28,7 @@ def snapshot(store):
         task = state['tasks'][task_id]
         progress = load(dict(status_file=str(Path(task['root']) / task.get('status_file','run/STATUS.json')),
                              progress_key=task.get('progress_key','updates'), total=task.get('updates',0)))
-        rows.append(dict(id=task_id, name=task['name'], state=task['state'], gpu=task.get('gpu'),
+        rows.append(dict(id=task_id, name=task['name'], state=task['state'], gpu=task.get('gpu'),gpu_uuid=task.get('gpu_uuid'),
                          epochs=task.get('epochs',0), updates=task.get('updates',0), progress=progress,
                          order=state['order'].index(task_id) + 1 if task_id in state['order'] else None))
     return dict(revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),
