@@ -54,6 +54,7 @@ function mergedOrder(ids){
  return state.tasks.filter(t=>t.state==='waiting').map(t=>visible.has(t.id)?ids[next++]:t.id);
 }
 function render(){
+ renderScheduling();
  gpuHistory=state.gpu_history||{};
  const focused=document.activeElement?.dataset.gpuSelect;
  let device=state.gpus.find(g=>gpuKey(g)===selectedGpu);
@@ -87,5 +88,29 @@ function render(){
 async function change(action,payload,text){if(mutating)return;mutating=true;try{state=await api(action,{...payload,revision:state.revision});notice(text);render();}catch(e){notice(e.message);}finally{mutating=false;await refresh();}}
 async function refresh(){if(busy||dragging||mutating)return;busy=true;try{state=await api('state');render();}catch(e){$('#connection').textContent='● 正在重连';$('#connection').classList.add('offline');notice(e.message);}finally{busy=false;}}
 $('#all-queues').addEventListener('click',()=>selectGPU(null));
+
+let settingsDirty=false;
+function renderScheduling(){
+ const settings=state.scheduling;
+ if(!settings)return;
+ $('#scheduler-usage').textContent=`运行 ${state.tasks.filter(t=>t.state==='running').length} / 窗口 ${settings.window===-1?'不限制':settings.window}`;
+ const status=state.scheduler||{},age=Date.now()/1000-(status.time||0);
+ $('#admission-reason').textContent=status.reason?(age>15?'调度状态待更新 · ':'')+status.reason:'等待调度器加载新版本';
+ if(!settingsDirty)for(const [key,value] of Object.entries(settings)){
+  const input=$('#scheduling-form').elements.namedItem(key);
+  if(input)input.value=key.endsWith('_mib')&&value!==-1?value/1024:value;
+ }
+}
+$('#scheduling-form').addEventListener('input',()=>settingsDirty=true);
+$('#settings-reset').addEventListener('click',()=>{settingsDirty=false;renderScheduling();});
+$('#scheduling-form').addEventListener('submit',async e=>{
+ e.preventDefault();if(!state||mutating)return;
+ const settings={};for(const [key,value] of new FormData(e.currentTarget))settings[key]=Number(value)===-1?-1:Number(value)*(key.endsWith('_mib')?1024:1);
+ if(Object.values(settings).some(v=>!Number.isInteger(v))){notice('设置必须是有效整数，显存单位为GiB。');return;}
+ mutating=true;
+ try{state=await api('configure',{settings,revision:state.revision});settingsDirty=false;notice('设置已保存；运行中的任务继续执行。');render();}
+ catch(e){notice(e.message);}finally{mutating=false;await refresh();}
+});
+
 $('#auth-form').addEventListener('submit',e=>{e.preventDefault();token=$('#auth-token').value.trim();sessionStorage.setItem('gpu-queue-local-token',token);$('#auth-dialog').close();refresh();});refresh();setInterval(refresh,3000);
 window.addEventListener('resize',drawGPUCharts);

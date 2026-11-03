@@ -36,11 +36,17 @@ def main():
     sub.add_parser('console')
     a=sub.add_parser('cancel');a.add_argument('id')
     a=sub.add_parser('reorder');a.add_argument('ids',nargs='+')
+    from queue_submit import options
+    a=sub.add_parser('submit',help='将前台命令追加到托管队尾')
+    options(a);a.add_argument('argv',nargs=argparse.REMAINDER)
     args=p.parse_args();config=load()
     if args.command=='console':
         command=shlex.join(['tmux','attach-session','-t',config['tmux_session']])
         raise SystemExit(subprocess.call(['ssh','-t',config['ssh_host'],command]))
-    if args.command=='init':
+    if args.command=='submit':
+        from queue_submit import build_task,submit
+        result=submit(build_task(args,args.argv),args.data or config['data_path'])
+    elif args.command=='init':
         if os.name!='posix':raise ValueError('请在Linux服务器导入已授权的任务计划')
         result=initialize(args.plan,config)
     else:

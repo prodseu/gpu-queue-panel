@@ -12,6 +12,7 @@ from queue_store import QueueStore, atomic
 from gpu_history import update as update_history
 from settings import load as load_config
 import process_monitor
+from scheduling import policy, running_ids
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA = ROOT / 'runtime-data'
@@ -24,7 +25,7 @@ def snapshot(store):
     history_path=store.directory/'gpu_history.json'
     history=json.loads(history_path.read_text(encoding='utf-8')) if history_path.exists() else {}
     inventory=process_monitor.collect(state,cached.get('gpus',[]),store.directory)
-    ids = ([state['running']] if state['running'] else []) + state['order']
+    ids = running_ids(state) + state['order']
     rows = []
     for task_id in ids:
         task = state['tasks'][task_id]
@@ -33,7 +34,9 @@ def snapshot(store):
         rows.append(dict(id=task_id, name=task['name'], state=task['state'], gpu=task.get('gpu'),gpu_uuid=task.get('gpu_uuid'),
                          epochs=task.get('epochs',0), updates=task.get('updates',0), progress=progress,processes=inventory['tasks'].get(task_id,[]),
                          order=state['order'].index(task_id) + 1 if task_id in state['order'] else None))
-    return dict(revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),monitor_processes=inventory['observed'],process_error=inventory['error'],
+    status_path=store.directory/'scheduler_status.json'
+    scheduler=json.loads(status_path.read_text()) if status_path.exists() else {}
+    return dict(scheduling=policy(state), scheduler=scheduler, revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),monitor_processes=inventory['observed'],process_error=inventory['error'],
                 gpu_history=history.get('history',{}),history_updated=history.get('updated'),history_window_seconds=300,
                 sampled=cached.get('sampled'), gpu_error=cached.get('gpu_error'),
                 last_change=state['last_change'], controller=cached.get('controller', '准备中'))
@@ -46,10 +49,12 @@ def rpc(request, store):
     if action == 'cancel':
         if str(request['id']).startswith('observed:'):raise ValueError('监控进程不可操作')
         store.cancel(request['id'], request.get('revision'))
+    elif action == 'configure':
+        store.configure(request['settings'], request.get('revision'))
     elif action == 'reorder':
         store.reorder(request['ids'], request.get('revision'))
     else:
-        raise ValueError('仅支持 state / cancel / reorder')
+        raise ValueError('仅支持 state / cancel / reorder / configure')
     return snapshot(store)
 
 

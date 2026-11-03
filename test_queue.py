@@ -28,6 +28,8 @@ class QueueTests(unittest.TestCase):
             self.tasks.append(dict(id=task_id,name=task_id,root=str(work),gpu=None,gpu_uuid='',epochs=1,updates=1,
                 argv=[sys.executable,'-c',"import sys;open('result.txt','w').write(sys.argv[1])",'literal argument with spaces']))
         self.store.initialize(self.tasks,[t['id'] for t in self.tasks])
+        from scheduling import DEFAULTS
+        self.store.configure(dict(DEFAULTS,window=1))
 
     def tearDown(self):self.temp.cleanup()
 

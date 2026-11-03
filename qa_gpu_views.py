@@ -68,6 +68,22 @@ def check():
                 assert page.locator('.task.read-only[draggable=true]').count()==0
                 assert all(t=='不可操作' for t in page.locator('.read-only-badge').all_text_contents())
                 assert page.locator('.task.running button').count()==0
+                assert page.locator('input[name=window]').input_value()=='2'
+                before_settings=store.read()
+                page.locator('input[name=window]').fill('3')
+                page.evaluate('refresh()')
+                assert page.locator('input[name=window]').input_value()=='3'
+                page.locator('#scheduling-form button[type=submit]').click()
+                page.wait_for_function("document.querySelector('#scheduler-usage').textContent.includes('窗口 3')")
+                assert store.read()['tasks']==before_settings['tasks']
+                assert store.read()['order']==before_settings['order']
+                page.reload();page.wait_for_selector('.task')
+                assert page.locator('input[name=window]').input_value()=='3'
+                page.locator('input[name=window]').fill('1')
+                page.locator('#scheduling-form button[type=submit]').click()
+                page.wait_for_function("document.querySelector('#scheduler-usage').textContent.includes('窗口 1')")
+                assert store.read()['running']=='R'
+                assert page.locator('.task.running').count()==1
                 page.locator('[data-gpu-select="GPU-XXX-0"]').click()
                 assert page.locator('.task[data-managed]').count()==3
                 assert page.locator('.task.read-only').count()==1
@@ -99,6 +115,25 @@ def check():
                 assert page.locator('.task[data-managed]').count()==1 and page.locator('.task[data-managed] .gpu-cell').inner_text()=='GPU 7'
                 snapshot([]);page.evaluate('refresh()');page.wait_for_function("document.querySelector('#queue-title').textContent==='总队列'")
                 assert page.locator('.task').count()==5 and '暂未检测到' in page.locator('#gpus').inner_text()
+                from scheduling import DEFAULTS
+                store.configure(dict(DEFAULTS,window=2))
+                assert store.claim()['id']=='A'
+                page.evaluate('refresh()')
+                page.wait_for_function("document.querySelectorAll('.task.running').length===2")
+                assert page.locator('.task.running button').count()==0
+                page.locator('input[name=window]').fill('1')
+                page.locator('#scheduling-form button[type=submit]').click()
+                page.wait_for_function("document.querySelector('#scheduler-usage').textContent.includes('运行 2 / 窗口 1')")
+                assert store.read()['tasks']['R']['state']==store.read()['tasks']['A']['state']=='running'
+                for key in DEFAULTS:
+                    page.locator(f'input[name={key}]').fill('-1')
+                page.locator('#scheduling-form button[type=submit]').click()
+                page.wait_for_function("document.querySelector('#scheduler-usage').textContent.includes('窗口 不限制')")
+                assert all(n==-1 for n in store.read()['metadata']['scheduling'].values())
+                page.reload();page.wait_for_selector('.task')
+                for key in DEFAULTS:
+                    assert page.locator(f'input[name={key}]').input_value()=='-1'
+                assert page.locator('.task.running').count()==2
                 assert not errors,errors
                 browser.close()
         finally:http.shutdown();http.server_close();thread.join()
@@ -108,6 +143,8 @@ def check():
             empty_GPU_view=True,no_GPU_fallback=True,reload_keeps_view=True,keyboard_selection=True,
             history_window_seconds=300,production_mutations=0,page_errors=errors)
         result.update(observed_rows_readonly=True,observed_not_draggable=True,observed_not_in_reorder=True)
+        result.update(scheduling_save_reload=True,dirty_fields_survive_refresh=True,shrink_keeps_running=True,two_running_rows=True)
+        result.update(all_minus_one_roundtrip=True,minus_one_memory_unit_preserved=True)
         if args.out:(args.out/'GPU_VIEWS_CHECK.json').write_text(json.dumps(result,indent=2))
         print(json.dumps(result))
 

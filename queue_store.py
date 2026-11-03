@@ -3,13 +3,14 @@ import contextlib
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 
 
 def atomic(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + '.tmp')
+    temp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
     temp.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2), encoding='utf-8')
     temp.replace(path)
 
@@ -99,42 +100,51 @@ class QueueStore:
             value['last_change'] = '更新等待顺序'
         return self.change(update, revision)
 
-    def claim(self,expected_id=None,revision=None):
-        """Only the existing-queue worker calls this, after its current child exits."""
+    def configure(self, settings, revision=None):
+        from scheduling import validate
+        settings = validate(settings)
         def update(value):
-            if value['running']:
-                raise ValueError('当前任务仍在执行')
-            if not value['order']:
-                return None
-            task_id = value['order'].pop(0)
-            task = value['tasks'][task_id]
-            task.update(state='running', started=time.time())
-            value['running'] = task_id
-            value['last_change'] = '开始既有队列任务：' + task['name']
-            return dict(task)
-        # None must stay None for an empty queue, rather than returning the whole state.
+            value['metadata']['scheduling'] = settings
+            value['last_change'] = '更新并发窗口和资源保护；运行项保持执行'
+        return self.change(update, revision)
+
+    def claim(self, expected_id=None, revision=None):
+        from scheduling import policy, running_ids, memory_needed
         with self.locked():
             value = json.loads(self.path.read_text(encoding='utf-8'))
-            if revision is not None and value['revision']!=revision:
+            if revision is not None and value['revision'] != revision:
                 return None
-            if expected_id is not None and (not value['order'] or value['order'][0]!=expected_id):
+            if not value['order']:
                 return None
-            task = update(value)
-            if task is not None:
-                value['revision'] += 1
-                value['updated'] = time.time()
-                atomic(self.path, value)
-            return task
+            if expected_id is not None and value['order'][0] != expected_id:
+                return None
+            window = policy(value)['window']
+            if window != -1 and len(running_ids(value)) >= window:
+                return None
+            task_id = value['order'][0]
+            task = value['tasks'][task_id]
+            if task.get('gpu_uuid'):
+                task['reserved_peak_memory_mib'] = memory_needed(task, policy(value))
+            value['order'].pop(0)
+            task.update(state='running', started=time.time())
+            value['running'] = running_ids(value)[0]  # compatibility: one active ID; tasks holds the full set
+            value['last_change'] = '开始既有队列任务：' + task['name']
+            value['revision'] += 1
+            value['updated'] = time.time()
+            atomic(self.path, value)
+            return dict(task)
 
-    def claim_if(self,task_id,revision):
-        return self.claim(task_id,revision)
+    def claim_if(self, task_id, revision):
+        return self.claim(task_id, revision)
 
     def finish(self, task_id, success, note=''):
+        from scheduling import running_ids
         def update(value):
-            if value['running'] != task_id or value['tasks'][task_id]['state'] != 'running':
+            if value['tasks'][task_id]['state'] != 'running':
                 raise ValueError('结束任务身份不匹配')
             value['tasks'][task_id].update(state='completed' if success else 'failed',
-                                           finished=time.time(), note=note)
-            value['running'] = None
+                                         finished=time.time(), note=note)
+            active = running_ids(value)
+            value['running'] = active[0] if active else None
             value['last_change'] = ('完成：' if success else '失败：') + value['tasks'][task_id]['name']
         return self.change(update)

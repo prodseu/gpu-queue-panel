@@ -87,7 +87,7 @@ def serve():
                 size=int(self.headers.get('Content-Length','0'))
                 if self.path!='/api/queue' or not 0<size<65536:raise ValueError('不支持的请求')
                 request=json.loads(self.rfile.read(size))
-                if request.get('action') not in ('state','cancel','reorder'):raise ValueError('仅支持查看、取消等待项和排序')
+                if request.get('action') not in ('state','cancel','reorder','configure'):raise ValueError('仅支持查看、取消等待项、排序和调度设置')
                 self.send(200,client.request(request))
             except ValueError as exc:self.send(409,{'error':str(exc)})
             except (OSError,KeyError,TypeError) as exc:self.send(503,{'error':str(exc)})
