@@ -14,6 +14,7 @@ parser.add_argument('--out',type=Path)
 args=parser.parse_args();ROOT=args.root.resolve();sys.path.insert(0,str(ROOT))
 from queue_store import QueueStore,atomic
 from server_agent import rpc
+import process_monitor
 from playwright.sync_api import sync_playwright
 
 
@@ -30,6 +31,13 @@ def check():
         def snapshot(gpus):atomic(data/'snapshot.json',dict(gpus=gpus,sampled=time.time(),controller='Isolated UI fixture'))
         snapshot(devices)
         now=time.time();atomic(data/'gpu_history.json',dict(updated=now,history={g['uuid']:[dict(t=now-300+i*3,compute=50.,memory=33.) for i in range(101)] for g in devices}))
+        def fake_inventory(state,gpus,directory):
+            available={g['uuid']:g for g in gpus}
+            observed=[dict(id='observed:fixture:'+str(i),state='observed',read_only=True,owned=False,pid=900+i,
+                name='python',python='/XXX/python',memory_used_mib=2048.,gpu=i,gpu_uuid='GPU-XXX-'+str(i))
+                for i in [0,1] if 'GPU-XXX-'+str(i) in available]
+            return dict(tasks={'R':[dict(pid=123,python='/XXX/bin/python',memory_used_mib=1024)]},observed=observed,error=None)
+        process_monitor.collect=fake_inventory
         requests=[]
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*a):pass
@@ -54,10 +62,15 @@ def check():
                 page.goto(f'http://127.0.0.1:{http.server_port}/')
                 page.wait_for_selector('.task')
                 assert page.locator('.gpu').count()==3
-                assert page.locator('.task').count()==6
+                assert page.locator('.task[data-managed]').count()==6
+                assert page.locator('.task.read-only').count()==2
+                assert page.locator('.task.read-only button').count()==0
+                assert page.locator('.task.read-only[draggable=true]').count()==0
+                assert all(t=='不可操作' for t in page.locator('.read-only-badge').all_text_contents())
                 assert page.locator('.task.running button').count()==0
                 page.locator('[data-gpu-select="GPU-XXX-0"]').click()
-                assert page.locator('.task').count()==3
+                assert page.locator('.task[data-managed]').count()==3
+                assert page.locator('.task.read-only').count()==1
                 assert page.locator('#queue-title').inner_text()=='GPU 0 · 我的队列'
                 page.locator('[data-move="-1"][data-id="C"]').click()
                 page.wait_for_function("document.querySelector('.task[draggable=true]').dataset.id==='C'")
@@ -66,7 +79,7 @@ def check():
                 page.wait_for_function("document.querySelector('.task[draggable=true]').dataset.id==='A'")
                 assert store.read()['order']==['A','B','C','D','CPU']
                 page.locator('[data-gpu-select="GPU-XXX-1"]').click()
-                assert page.locator('.task').count()==2
+                assert page.locator('.task[data-managed]').count()==2
                 page.locator('[data-cancel="B"]').click()
                 page.locator('.task[data-id="B"]').wait_for(state='detached')
                 assert store.read()['order']==['A','C','D','CPU'] and store.read()['running']=='R'
@@ -75,7 +88,7 @@ def check():
                 page.locator('[data-gpu-select="GPU-XXX-2"]').focus();page.keyboard.press('Enter')
                 assert page.locator('.task').count()==0 and '没有你的' in page.locator('#tasks').inner_text()
                 page.locator('#all-queues').click()
-                assert page.locator('.task').count()==5 and 'CPU' in page.locator('#tasks').inner_text()
+                assert page.locator('.task[data-managed]').count()==5 and 'CPU' in page.locator('#tasks').inner_text()
                 assert page.locator('canvas.gpu-chart').count()==3
                 assert all(abs(v-300)<.001 for v in page.locator('canvas').evaluate_all('nodes=>nodes.map(n=>Number(n.dataset.windowEnd)-Number(n.dataset.windowStart))'))
                 if args.out:
@@ -83,7 +96,7 @@ def check():
                 page.locator('[data-gpu-select="GPU-XXX-1"]').click()
                 changed=[dict(devices[1],index=7),devices[2]];snapshot(changed)
                 page.evaluate('refresh()');page.wait_for_function("document.querySelector('#queue-title').textContent==='GPU 7 · 我的队列'")
-                assert page.locator('.task').count()==1 and page.locator('.gpu-cell').inner_text()=='GPU 7'
+                assert page.locator('.task[data-managed]').count()==1 and page.locator('.task[data-managed] .gpu-cell').inner_text()=='GPU 7'
                 snapshot([]);page.evaluate('refresh()');page.wait_for_function("document.querySelector('#queue-title').textContent==='总队列'")
                 assert page.locator('.task').count()==5 and '暂未检测到' in page.locator('#gpus').inner_text()
                 assert not errors,errors
@@ -94,6 +107,7 @@ def check():
             cancel_preserves_siblings=True,legacy_index_fallback=True,UUID_survives_index_change=True,
             empty_GPU_view=True,no_GPU_fallback=True,reload_keeps_view=True,keyboard_selection=True,
             history_window_seconds=300,production_mutations=0,page_errors=errors)
+        result.update(observed_rows_readonly=True,observed_not_draggable=True,observed_not_in_reorder=True)
         if args.out:(args.out/'GPU_VIEWS_CHECK.json').write_text(json.dumps(result,indent=2))
         print(json.dumps(result))
 

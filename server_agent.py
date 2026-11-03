@@ -11,6 +11,7 @@ from progress import load
 from queue_store import QueueStore, atomic
 from gpu_history import update as update_history
 from settings import load as load_config
+import process_monitor
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA = ROOT / 'runtime-data'
@@ -22,6 +23,7 @@ def snapshot(store):
     cached = json.loads(cached_path.read_text(encoding='utf-8')) if cached_path.exists() else {}
     history_path=store.directory/'gpu_history.json'
     history=json.loads(history_path.read_text(encoding='utf-8')) if history_path.exists() else {}
+    inventory=process_monitor.collect(state,cached.get('gpus',[]),store.directory)
     ids = ([state['running']] if state['running'] else []) + state['order']
     rows = []
     for task_id in ids:
@@ -29,9 +31,9 @@ def snapshot(store):
         progress = load(dict(status_file=str(Path(task['root']) / task.get('status_file','run/STATUS.json')),
                              progress_key=task.get('progress_key','updates'), total=task.get('updates',0)))
         rows.append(dict(id=task_id, name=task['name'], state=task['state'], gpu=task.get('gpu'),gpu_uuid=task.get('gpu_uuid'),
-                         epochs=task.get('epochs',0), updates=task.get('updates',0), progress=progress,
+                         epochs=task.get('epochs',0), updates=task.get('updates',0), progress=progress,processes=inventory['tasks'].get(task_id,[]),
                          order=state['order'].index(task_id) + 1 if task_id in state['order'] else None))
-    return dict(revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),
+    return dict(revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),monitor_processes=inventory['observed'],process_error=inventory['error'],
                 gpu_history=history.get('history',{}),history_updated=history.get('updated'),history_window_seconds=300,
                 sampled=cached.get('sampled'), gpu_error=cached.get('gpu_error'),
                 last_change=state['last_change'], controller=cached.get('controller', '准备中'))
@@ -42,6 +44,7 @@ def rpc(request, store):
     if action == 'state':
         return snapshot(store)
     if action == 'cancel':
+        if str(request['id']).startswith('observed:'):raise ValueError('监控进程不可操作')
         store.cancel(request['id'], request.get('revision'))
     elif action == 'reorder':
         store.reorder(request['ids'], request.get('revision'))
@@ -75,7 +78,7 @@ def run(store,config,execute=False):
         info = gpu.snapshot({}, telemetry=True)
         control = store.directory / 'controller.json'
         controller = json.loads(control.read_text()).get('phase', '仅监控') if control.exists() else '仅监控'
-        # No process names or other users' jobs are sent to the local viewer.
+        # GPU totals are cached here; scoped read-only process metadata is added by snapshot().
         devices = [{k: g[k] for k in ('index', 'uuid', 'name', 'memory_used_mib', 'memory_total_mib', 'utilization')}
                    for g in info['gpus']]
         atomic(store.directory / 'snapshot.json', dict(gpus=devices, gpu_error=info['error'],

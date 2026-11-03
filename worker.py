@@ -34,7 +34,7 @@ class Controller:
         env.update(CUDA_VISIBLE_DEVICES=task.get('gpu_uuid') or '',PYTHONUNBUFFERED='1')
         with (directory/'output.log').open('xb') as log:
             child=subprocess.Popen(task['argv'],cwd=root,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
-            atomic(directory/'launch.json',dict(pid=child.pid,time=time.time(),argv=task['argv']))
+            atomic(directory/'launch.json',dict(pid=child.pid,time=time.time(),argv=task['argv'],identity=gpu.identity(child.pid)))
             self.phase('执行中：'+task['name'],task=task['id'],child_pid=child.pid)
             code=child.wait()
         atomic(directory/'receipt.json',dict(returncode=code,finished=time.time()))
