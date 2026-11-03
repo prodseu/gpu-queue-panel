@@ -63,6 +63,18 @@ class QueueTests(unittest.TestCase):
         self.assertTrue(all(value['tasks'][i]['state']=='waiting' for i in value['order']))
         self.assertEqual(json.loads((self.store.directory/'jobs/task-a/receipt.json').read_text())['returncode'],3)
 
+    def test_default_failure_continues_later_commands_without_retry(self):
+        def fail_first(value):value['tasks']['task-a']['argv']=[sys.executable,'-c','raise SystemExit(3)']
+        self.store.change(fail_first)
+        with self.assertRaises(IdleReached):
+            DrainFixture(self.store,dict(refresh_seconds=.01)).run()
+        value=self.store.read()
+        self.assertEqual(value['tasks']['task-a']['state'],'failed')
+        self.assertEqual(value['tasks']['task-b']['state'],'completed')
+        self.assertEqual(value['tasks']['task-c']['state'],'completed')
+        self.assertEqual(value['order'],[])
+        self.assertEqual(json.loads((self.store.directory/'jobs/task-a/receipt.json').read_text())['returncode'],3)
+
     def test_empty_queue_remains_alive_and_runs_later_CPU_commands(self):
         for task in self.tasks:self.store.cancel(task['id'])
         idle=threading.Event();stop=threading.Event()

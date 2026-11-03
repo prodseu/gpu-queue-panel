@@ -7,6 +7,6 @@
   "data_dir": "runtime-data",
   "tmux_session": "gpu-queue-panel",
   "refresh_seconds": 3,
-  "stop_on_failure": true,
+  "stop_on_failure": false,
   "hold_rules": []
 }

@@ -19,3 +19,5 @@
 - Default workflow: submit every future user-authorized training through qrun/queue_submit (or the optional early --queue hook) into the same QueueStore. Inspect live status first; retain finite budgets, original scientific validation and stable IDs. Do not launch standalone train.py/nohup/screen loops or duplicate schedulers unless the user explicitly requests an exception.
 - CLI enrollment happens on the server only. Keep arbitrary-command submission out of the browser/state RPC. Preserve argv/cwd/selected interpreter; registered command tasks use their own foreground runner/log/identity/exit receipt. Do not auto-adopt existing or foreign processes.
 - Repeated identical submissions return the same job. Use a new explicit ID only for a newly authorized run; default queue management grants no extra epochs/seeds/retries/GPU access. Never submit a real training merely to test enrollment.
+
+- 用户2026-11-03最新要求失败也继续领取，覆盖所有旧失败停队约定。默认失败仅记录该项，继续等待队列；不自动重试失败/取消项、不加预算、窗口与资源门保持。发布版默认stop_on_failure=false。

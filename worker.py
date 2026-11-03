@@ -41,6 +41,6 @@ class Controller:
             Dispatcher(self.store,make_worker,self.phase,
                 Admission(self.store.directory,self.config.get('hold_rules',[])),
                 interval=self.config['refresh_seconds'],
-                stop_on_failure=lambda task:self.config.get('stop_on_failure',True)).run()
+                stop_on_failure=lambda task:self.config.get('stop_on_failure',False)).run()
         except Exception:
             self.phase('协调异常，未自动重试；运行项不发信号',error=traceback.format_exc())

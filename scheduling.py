@@ -136,10 +136,12 @@ class Admission:
 class Dispatcher:
     """A single owner mutates queue state; independent job threads execute commands."""
     def __init__(self, store, make_worker, phase, admission, interval=3,
-                 stop_on_failure=lambda task: True, on_idle=None):
+                 stop_on_failure=lambda task: False, on_idle=None, adopted_ids=(), status_name='scheduler_status.json'):
         self.store, self.make_worker, self.phase = store, make_worker, phase
         self.admission, self.interval = admission, interval
         self.stop_on_failure, self.on_idle = stop_on_failure, on_idle
+        self.adopted_ids=set(adopted_ids)
+        self.status_name=status_name
         self.active = {}
         self.halted = False
 
@@ -178,7 +180,7 @@ class Dispatcher:
                     reason = '任务已启动，等待资源稳定后再判断下一项'
         value = self.store.read()
         ids = running_ids(value)
-        atomic(self.store.directory / 'scheduler_status.json', dict(time=time.time(),
+        atomic(self.store.directory / self.status_name, dict(time=time.time(),
             running=ids, window=settings['window'], reason=reason, halted=self.halted))
         if not ids and not value['order']:
             self.phase('队列为空，持续待命；新任务加入后自动接续')
@@ -188,7 +190,8 @@ class Dispatcher:
         return value
 
     def run(self):
-        if running_ids(self.store.read()):
+        initial=set(running_ids(self.store.read()))
+        if initial - self.adopted_ids:
             raise RuntimeError('存在先前运行项；保留状态，不自动重跑，请核对进程后恢复')
         idle_revision = None
         while True:

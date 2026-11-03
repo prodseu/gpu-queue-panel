@@ -14,7 +14,7 @@ def load():
     config.setdefault('local_port',8787)
     config.setdefault('tmux_session','gpu-queue-panel')
     config.setdefault('refresh_seconds',3)
-    config.setdefault('stop_on_failure',True)
+    config.setdefault('stop_on_failure',False)
     config.setdefault('hold_rules',[])
     config['data_path']=str((path.parent/Path(config.get('data_dir','runtime-data'))).resolve())
     return config

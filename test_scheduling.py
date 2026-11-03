@@ -105,7 +105,7 @@ class SchedulingTests(unittest.TestCase):
                     release.wait(2)
                 else:
                     raise RuntimeError('fixture failure')
-        d = Dispatcher(self.store, lambda task:Worker(), lambda *a,**k:None, Admission(self.store.directory))
+        d = Dispatcher(self.store, lambda task:Worker(), lambda *a,**k:None, Admission(self.store.directory),stop_on_failure=lambda task:True)
         try:
             d.tick();d.tick()
             deadline=time.monotonic()+2
