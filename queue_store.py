@@ -67,7 +67,7 @@ class QueueStore:
             if set(order) != {i for i in ids if i != running}:
                 raise ValueError('等待顺序必须包含所有未运行任务')
             value = dict(version=2, revision=0, tasks=jobs, order=order, running=running,
-                         metadata=metadata or {}, updated=time.time(), last_change='导入当前已授权队列')
+                         metadata=dict(metadata or {},multiuser_rc=True), updated=time.time(), last_change='导入当前已授权队列')
             atomic(self.path, value)
             return value
 
@@ -82,9 +82,10 @@ class QueueStore:
             atomic(self.path, value)
             return result if result is not None else value
 
-    def cancel(self, task_id, revision=None):
+    def cancel(self, task_id, revision=None, *, actor):
         def update(value):
-            task = value['tasks'][task_id]
+            from auth import allowed_task
+            task = allowed_task(value,task_id,actor)
             if task['state'] != 'waiting':
                 raise ValueError('只可取消等待任务；正在运行的任务保持执行')
             task.update(state='canceled', finished=time.time())
@@ -92,15 +93,19 @@ class QueueStore:
             value['last_change'] = '取消等待项：' + task['name']
         return self.change(update, revision)
 
-    def reorder(self, ids, revision=None):
+    def reorder(self, ids, revision=None, *, actor):
         def update(value):
-            if not isinstance(ids, list) or len(ids) != len(value['order']) or set(ids) != set(value['order']):
-                raise ValueError('请按新顺序提供全部等待项；不能包含运行项或已取消项')
-            value['order'] = ids
-            value['last_change'] = '更新等待顺序'
-        return self.change(update, revision)
+            from auth import visible
+            owned=[key for key in value['order'] if visible(value['tasks'][key],actor)]
+            if not isinstance(ids,list) or len(ids)!=len(owned) or len(set(ids))!=len(ids) or set(ids)!=set(owned):
+                raise ValueError('请提供自己可管理的全部等待ID；不能包含其他用户/运行/已取消项')
+            slots=set(owned);iterator=iter(ids)
+            value['order']=[next(iterator) if key in slots else key for key in value['order']]
+            value['last_change']='更新等待顺序'
+        return self.change(update,revision)
 
-    def configure(self, settings, revision=None):
+    def configure(self, settings, revision=None, *, actor):
+        if not actor.admin:raise PermissionError('仅管理员可修改全局调度设置')
         from scheduling import validate
         settings = validate(settings)
         def update(value):
@@ -123,6 +128,9 @@ class QueueStore:
                 return None
             task_id = value['order'][0]
             task = value['tasks'][task_id]
+            from auth import Accounts
+            if not task.get('owner_id') or not Accounts(self.directory).enabled(task['owner_id']):
+                return None
             if task.get('gpu_uuid'):
                 task['reserved_peak_memory_mib'] = memory_needed(task, policy(value))
             value['order'].pop(0)

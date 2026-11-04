@@ -18,16 +18,11 @@ def main():
     config=load()
     port=int(config['local_port'])
     directory=ROOT/'client-data';directory.mkdir(exist_ok=True)
-    token_file=directory/'local.token'
     base=f'http://127.0.0.1:{port}'
     def connected():
-        if not token_file.exists():return False
-        token=token_file.read_text().strip()
-        req=urllib.request.Request(base+'/api/queue',data=b'{"action":"state"}',
-            headers={'Content-Type':'application/json','Authorization':'Bearer '+token})
         try:
-            with urllib.request.urlopen(req,timeout=4) as response:json.load(response)
-            return True
+            with urllib.request.urlopen(base+'/health',timeout=4) as response:
+                return json.load(response).get('application')=='gpu-queue-panel-multiuser'
         except OSError:return False
     if not connected():
         try:connection=socket.create_connection(('127.0.0.1',port),timeout=1)
@@ -45,7 +40,7 @@ def main():
             if connected():break
             time.sleep(.5)
         else:raise RuntimeError('界面未连接，请检查SSH配置与client-data/viewer.log')
-    webbrowser.open(base+'/#token='+token_file.read_text().strip())
+    webbrowser.open(base+'/')
 
 
 if __name__=='__main__':

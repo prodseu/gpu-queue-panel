@@ -11,12 +11,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from auth import Accounts,Actor,save_session
+ADMIN=Actor("fixture","admin")
 from queue_store import QueueStore,atomic
-from queue_submit import build_task,options,submit,enqueue_if_requested
+from queue_submit import build_task,options,submit as authenticated_submit,enqueue_if_requested
 from command_runner import execute
 from scheduling import Admission,Dispatcher
 
 HERE=Path(__file__).resolve().parent
+submit=authenticated_submit
 
 
 class SubmissionTests(unittest.TestCase):
@@ -25,9 +28,13 @@ class SubmissionTests(unittest.TestCase):
         self.work=self.root/'work with spaces';self.work.mkdir()
         self.store=QueueStore(self.root/'runtime')
         self.store.initialize([],[],metadata=dict(scheduler_mode='persistent',deadline=None))
+        accounts=Accounts(self.store.directory);accounts.add("fixture","fixture-password-123","admin")
+        session_file=self.store.directory/"fixture.session.json"
+        save_session(accounts.login("fixture","fixture-password-123"),session_file)
+        self.env_patch=patch.dict(os.environ,{"GPU_QUEUE_SESSION":str(session_file)});self.env_patch.start()
         atomic(self.store.directory/'scheduler_runtime.json',dict(command_submission_version=1))
 
-    def tearDown(self):self.temp.cleanup()
+    def tearDown(self):self.env_patch.stop();self.temp.cleanup()
 
     def task(self,key='fixture',command=None):
         return dict(id=key,name=key,kind='command',root=str(self.work),gpu=None,gpu_uuid='',
@@ -42,12 +49,12 @@ class SubmissionTests(unittest.TestCase):
         self.assertTrue(duplicate['duplicate'])
         self.assertEqual(self.store.read()['tasks'],before['tasks'])
         self.assertEqual(self.store.read()['order'],before['order'])
-        conflicting=dict(self.task('B'),submission_fingerprint='different')
-        with self.assertRaises(ValueError):submit(conflicting,self.store.directory)
+        conflicting=dict(self.task('B'),argv=[sys.executable,'-c','print(1)'])
+        with self.assertRaises(PermissionError):submit(conflicting,self.store.directory)
         submit(self.task('C'),self.store.directory)
         after=self.store.read()
         self.assertEqual(after['running'],'A');self.assertEqual(after['order'],['B','C'])
-        self.store.cancel('B');self.store.finish('A',True)
+        self.store.cancel('B',actor=ADMIN);self.store.finish('A',True)
         self.assertTrue(submit(self.task('A'),self.store.directory)['duplicate'])
         self.assertEqual(self.store.read()['order'],['C'])
 
@@ -72,21 +79,8 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(json.loads((self.store.directory/'jobs/fixture/receipt.json').read_text())['returncode'],0)
         if os.name=='posix':self.assertIsNotNone(json.loads((self.store.directory/'jobs/fixture/launch.json').read_text())['identity'])
 
-    def test_private_command_branch_bypasses_scientific_pipeline(self):
-        if not (HERE/'existing_worker.py').exists():self.skipTest('current/private adapter only')
-        from existing_worker import Controller
-        task=self.task();submit(task,self.store.directory)
-        worker=Controller.__new__(Controller)
-        worker.store=self.store;worker.phase=lambda *a,**k:None
-        worker.execute(self.store.claim())
-        self.assertTrue((self.store.directory/'jobs/fixture/receipt.json').is_file())
-
-    def test_missing_queue_or_old_private_adapter_is_not_enrolled(self):
-        with self.assertRaises(ValueError):submit(self.task(),self.root/'missing')
-        if (HERE/'existing_worker.py').exists():
-            atomic(self.store.directory/'scheduler_runtime.json',dict(command_submission_version=0))
-            with self.assertRaises(ValueError):submit(self.task(),self.store.directory)
-            self.assertEqual(self.store.read()['order'],[])
+    def test_missing_queue_is_not_enrolled(self):
+        with self.assertRaises(FileNotFoundError):submit(self.task(),self.root/'missing')
 
     def test_opt_in_is_inert_without_flag_and_rejects_recursive_submit(self):
         self.assertFalse(enqueue_if_requested(['--epochs','20','--gpu','2']))

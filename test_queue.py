@@ -6,6 +6,8 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from auth import Accounts,Actor,save_session
+ADMIN=Actor("fixture","admin")
 from queue_store import QueueStore
 from worker import Controller
 
@@ -27,14 +29,16 @@ class QueueTests(unittest.TestCase):
             work=self.root/task_id;work.mkdir()
             self.tasks.append(dict(id=task_id,name=task_id,root=str(work),gpu=None,gpu_uuid='',epochs=1,updates=1,
                 argv=[sys.executable,'-c',"import sys;open('result.txt','w').write(sys.argv[1])",'literal argument with spaces']))
+        Accounts(self.store.directory).add("fixture","fixture-password-123","admin")
+        for task in self.tasks:task["owner_id"]="fixture"
         self.store.initialize(self.tasks,[t['id'] for t in self.tasks])
         from scheduling import DEFAULTS
-        self.store.configure(dict(DEFAULTS,window=1))
+        self.store.configure(dict(DEFAULTS,window=1),actor=ADMIN)
 
     def tearDown(self):self.temp.cleanup()
 
     def test_cancel_middle_keeps_independent_jobs_executable(self):
-        self.store.cancel('task-b')
+        self.store.cancel('task-b',actor=ADMIN)
         with self.assertRaises(IdleReached):
             DrainFixture(self.store,dict(refresh_seconds=.01,stop_on_failure=True)).run()
         value=self.store.read()
@@ -46,11 +50,11 @@ class QueueTests(unittest.TestCase):
 
     def test_reorder_invalidates_old_gpu_candidate_and_protects_running(self):
         old=self.store.read()
-        self.store.reorder(['task-c','task-b','task-a'],revision=old['revision'])
+        self.store.reorder(['task-c','task-b','task-a'],revision=old['revision'],actor=ADMIN)
         self.assertIsNone(self.store.claim_if('task-a',old['revision']))
-        with self.assertRaises(ValueError):self.store.cancel('task-b',revision=old['revision'])
+        with self.assertRaises(ValueError):self.store.cancel('task-b',revision=old['revision'],actor=ADMIN)
         self.assertEqual(QueueStore(self.store.directory).claim()['id'],'task-c')
-        with self.assertRaises(ValueError):self.store.cancel('task-c')
+        with self.assertRaises(ValueError):self.store.cancel('task-c',actor=ADMIN)
         self.assertEqual(self.store.read()['order'],['task-b','task-a'])
 
     def test_failure_does_not_mark_siblings_failed_or_restart_job(self):
@@ -76,7 +80,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(json.loads((self.store.directory/'jobs/task-a/receipt.json').read_text())['returncode'],3)
 
     def test_empty_queue_remains_alive_and_runs_later_CPU_commands(self):
-        for task in self.tasks:self.store.cancel(task['id'])
+        for task in self.tasks:self.store.cancel(task['id'],actor=ADMIN)
         idle=threading.Event();stop=threading.Event()
         class PersistentFixture(Controller):
             def phase(self,phase,**extra):

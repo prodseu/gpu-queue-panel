@@ -4,7 +4,11 @@
       "id": "task-a",
       "name": "训练任务 A",
       "root": "/XXX/jobs/task-a",
-      "argv": ["/XXX/bin/python", "-u", "train.py"],
+      "argv": [
+        "/XXX/bin/python",
+        "-u",
+        "train.py"
+      ],
       "gpu": 0,
       "gpu_uuid": "XXX",
       "epochs": 20,
@@ -12,21 +16,31 @@
       "status_file": "run/STATUS.json",
       "progress_key": "updates",
       "completion_file": "run/completion.json",
-      "env": {}
+      "env": {},
+      "owner_id": "alice"
     },
     {
       "id": "task-b",
       "name": "训练任务 B",
       "root": "/XXX/jobs/task-b",
-      "argv": ["/XXX/bin/python", "-u", "train.py"],
+      "argv": [
+        "/XXX/bin/python",
+        "-u",
+        "train.py"
+      ],
       "gpu": 1,
       "gpu_uuid": "XXX",
       "epochs": 20,
       "updates": 1000,
       "status_file": "run/STATUS.json",
       "progress_key": "updates",
-      "env": {}
+      "env": {},
+      "owner_id": "bob"
     }
   ],
-  "order": ["task-a", "task-b"]
+  "order": [
+    "task-a",
+    "task-b"
+  ],
+  "_note": "结构参考，RC不提供旧队列自动导入；使用登录后的qrun创建任务。owner_id由后端决定。"
 }

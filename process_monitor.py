@@ -25,7 +25,7 @@ def describe(name,identity=None):
     return base,python
 
 
-def collect(state,devices,directory):
+def collect(state,devices,directory,include_trusted=True):
     tasks={};observed=[]
     try:
         rows=gpu.query(['--query-compute-apps=gpu_uuid,pid,process_name,used_memory'])
@@ -37,7 +37,7 @@ def collect(state,devices,directory):
                 identities[pid]=proc if proc and proc.get('state') not in ('Z','X') else None
             return identities[pid]
         trusted_path=Path(directory)/'monitored_own_processes.json'
-        if trusted_path.is_file():
+        if include_trusted and trusted_path.is_file():
             for record in json.loads(trusted_path.read_text()):
                 saved=record.get('identity')
                 if saved:identity(saved['pid'],saved)

@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from auth import Accounts,Actor,save_session
+ADMIN=Actor("fixture","admin")
 from queue_store import QueueStore
 from scheduling import Admission, DEFAULTS, Dispatcher, policy, running_ids
 
@@ -19,6 +21,8 @@ class SchedulingTests(unittest.TestCase):
         self.store = QueueStore(self.root/'data')
         self.tasks = [dict(id=k, name=k, root=str(self.root), gpu_uuid='',
                            argv=[sys.executable, '-c', 'pass']) for k in 'ABCD']
+        Accounts(self.store.directory).add("fixture","fixture-password-123","admin")
+        for task in self.tasks:task["owner_id"]="fixture"
         self.store.initialize(self.tasks, list('ABCD'))
 
     def tearDown(self):
@@ -36,12 +40,12 @@ class SchedulingTests(unittest.TestCase):
         barrier.wait()
         for t in threads:t.join()
         self.assertEqual(sum(x is not None for x in results), 2)
-        self.store.configure(dict(DEFAULTS, window=1))
+        self.store.configure(dict(DEFAULTS, window=1),actor=ADMIN)
         self.assertIsNone(self.store.claim())
         self.assertEqual(running_ids(self.store.read()), list('AB'))
-        with self.assertRaises(ValueError):self.store.cancel('A')
-        self.store.reorder(list('DC'))
-        self.store.cancel('C')
+        with self.assertRaises(ValueError):self.store.cancel('A',actor=ADMIN)
+        self.store.reorder(list('DC'),actor=ADMIN)
+        self.store.cancel('C',actor=ADMIN)
         self.store.finish('B', True)
         self.assertEqual(running_ids(self.store.read()), ['A'])
         self.assertEqual(self.store.read()['running'], 'A')
@@ -52,14 +56,14 @@ class SchedulingTests(unittest.TestCase):
 
     def test_settings_revision_validation_does_not_touch_jobs(self):
         old = self.store.read()
-        self.store.configure(dict(DEFAULTS, window=3), old['revision'])
+        self.store.configure(dict(DEFAULTS, window=3), old['revision'],actor=ADMIN)
         new = self.store.read()
         self.assertEqual(new['tasks'], old['tasks'])
         self.assertEqual(new['order'], old['order'])
-        with self.assertRaises(ValueError):self.store.configure(DEFAULTS, old['revision'])
+        with self.assertRaises(ValueError):self.store.configure(DEFAULTS, old['revision'],actor=ADMIN)
         for key, bad in [('window', 0), ('window', True), ('window', 9),
                          ('utilization_limit', 100), ('reserve_mib', 0), ('stable_seconds', float('nan'))]:
-            with self.assertRaises(ValueError):self.store.configure(dict(DEFAULTS, **{key:bad}))
+            with self.assertRaises(ValueError):self.store.configure(dict(DEFAULTS, **{key:bad}),actor=ADMIN)
 
     def test_real_two_CPU_commands_overlap_and_shrink_preserves_them(self):
         # Actual foreground processes wait on separate files; both must be live.
@@ -77,7 +81,7 @@ class SchedulingTests(unittest.TestCase):
             while not all((self.root/(key+'.started')).exists() for key in 'AB'):
                 if time.monotonic()>limit:self.fail('CPU commands did not overlap')
                 time.sleep(.02)
-            self.store.configure(dict(DEFAULTS, window=1))
+            self.store.configure(dict(DEFAULTS, window=1),actor=ADMIN)
             dispatcher.tick()
             self.assertEqual(len(running_ids(self.store.read())), 2)
             (self.root/'B').touch()
@@ -88,7 +92,7 @@ class SchedulingTests(unittest.TestCase):
                 time.sleep(.01)
             self.assertEqual(running_ids(self.store.read()), ['A'])
             self.assertFalse((self.root/'C.started').exists())
-            self.store.reorder(list('DC'));self.store.cancel('C')
+            self.store.reorder(list('DC'),actor=ADMIN);self.store.cancel('C',actor=ADMIN)
         finally:
             for key in 'ABCD':(self.root/key).touch()
             for _, thread, _ in dispatcher.active.values():thread.join(5)
@@ -126,7 +130,7 @@ class SchedulingTests(unittest.TestCase):
         self.store.change(lambda v:[v['tasks'][k].update(gpu_uuid='GPU-XXX', peak_memory_mib=24576) for k in 'ABCD'])
         a=self.store.claim()
         self.assertEqual(a['reserved_peak_memory_mib'],24576)
-        self.store.configure(dict(DEFAULTS,default_peak_mib=1024,utilization_limit=85))
+        self.store.configure(dict(DEFAULTS,default_peak_mib=1024,utilization_limit=85),actor=ADMIN)
         from scheduling import memory_needed
         self.assertEqual(memory_needed(self.store.read()['tasks']['A'],policy(self.store.read())),24576)
         now=time.time()+120
@@ -161,11 +165,11 @@ class SchedulingTests(unittest.TestCase):
 
     def test_minus_one_settings_and_unlimited_atomic_window(self):
         for key in DEFAULTS:
-            self.store.configure(dict(DEFAULTS, **{key:-1}))
+            self.store.configure(dict(DEFAULTS, **{key:-1}),actor=ADMIN)
             self.assertEqual(policy(self.store.read())[key], -1)
             for invalid in (-2, 0):
-                with self.assertRaises(ValueError):self.store.configure(dict(DEFAULTS, **{key:invalid}))
-        self.store.configure(dict(DEFAULTS,window=-1))
+                with self.assertRaises(ValueError):self.store.configure(dict(DEFAULTS, **{key:invalid}),actor=ADMIN)
+        self.store.configure(dict(DEFAULTS,window=-1),actor=ADMIN)
         for key in 'ABCD':self.assertEqual(self.store.claim()['id'],key)
         self.assertEqual(len(running_ids(self.store.read())),4)
 
@@ -179,7 +183,7 @@ class SchedulingTests(unittest.TestCase):
         inventory=dict(tasks={},observed=[],error=None)
         admission=Admission(self.store.directory)
         def check(**settings):
-            self.store.configure(dict(DEFAULTS,**settings))
+            self.store.configure(dict(DEFAULTS,**settings),actor=ADMIN)
             value=self.store.read()
             return admission.check(value['tasks']['A'],value,now)
         with patch('scheduling.gpu.snapshot',side_effect=snapshot),patch('scheduling.process_monitor.collect',return_value=inventory):
@@ -203,7 +207,7 @@ class SchedulingTests(unittest.TestCase):
             self.store.change(lambda v:v['tasks']['D'].update(state='completed',started=now-1))
             self.assertIn('冷却',check()[1])
             self.assertTrue(check(reserve_mib=-1,memory_limit_percent=-1,launch_interval_seconds=-1)[0])
-        self.store.configure(dict(DEFAULTS,default_peak_mib=-1))
+        self.store.configure(dict(DEFAULTS,default_peak_mib=-1),actor=ADMIN)
         task=self.store.claim()
         self.assertEqual(task['reserved_peak_memory_mib'],-1)
         from scheduling import memory_needed

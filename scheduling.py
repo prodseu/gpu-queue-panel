@@ -172,7 +172,11 @@ class Dispatcher:
         reason = '暂停领取：任务失败；其余运行项继续，等待项保留' if self.halted else '等待队列任务'
         if not self.halted and value['order']:
             candidate = value['tasks'][value['order'][0]]
-            allowed, reason = self.admission.check(candidate, value)
+            from auth import Accounts
+            if not candidate.get('owner_id') or not Accounts(self.store.directory).enabled(candidate['owner_id']):
+                allowed,reason=False,'队首任务未分配用户或用户已停用；请管理员处理'
+            else:
+                allowed, reason = self.admission.check(candidate, value)
             if allowed:
                 task = self.store.claim_if(candidate['id'], value['revision'])
                 if task:

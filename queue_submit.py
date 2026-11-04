@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from queue_store import QueueStore
+from auth import AuthenticationError
 
 HERE = Path(__file__).resolve().parent
 ENV_KEYS = ('PATH', 'PYTHONPATH', 'LD_LIBRARY_PATH', 'CONDA_PREFIX', 'VIRTUAL_ENV')
@@ -34,7 +35,7 @@ def options(parser, prefix=''):
     device=parser.add_mutually_exclusive_group(required=inherited is None)
     device.add_argument(flag('gpu'),dest='gpu',default=inherited,help='GPU编号或完整UUID；可继承单卡CUDA_VISIBLE_DEVICES')
     device.add_argument(flag('cpu'),dest='cpu',action='store_true')
-    for name in ('id','name','cwd','data','status-file','completion-file'):
+    for name in ('id','name','cwd','data','status-file','completion-file','session-file'):
         parser.add_argument(flag(name),dest=name.replace('-','_'))
     parser.add_argument(flag('peak-memory-mib'),dest='peak_memory_mib',type=int)
     parser.add_argument(flag('progress-key'),dest='progress_key',default='updates')
@@ -96,27 +97,53 @@ def build_task(args, command):
     return task
 
 
-def submit(task, directory):
-    store=QueueStore(directory)
-    if not store.path.is_file():raise ValueError('队列未初始化；先导入空队列或已有计划并启动服务器执行器')
-    # Current/private tool needs its command adapter loaded before enrollment.
-    if (HERE/'existing_worker.py').exists():
-        runtime=store.directory/'scheduler_runtime.json'
-        if not runtime.exists() or json.loads(runtime.read_text()).get('command_submission_version',0)<1:
-            raise ValueError('当前执行器尚未加载命令托管适配器；请先完成安全更新，不登记无法执行的任务')
+def enroll(task,store,actor,auto_id=False):
+    from auth import require_rc
+    require_rc(store)
+    if not isinstance(task,dict):raise ValueError('task须为对象')
+    fields={'id','name','root','argv','gpu','gpu_uuid','env','updates','epochs','progress_key','status_file','completion_file','peak_memory_mib','submission_fingerprint','kind'}
+    if set(task)-fields:raise PermissionError('任务归属与状态只能由后端确定')
+    if not isinstance(task.get('id'),str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}',task['id']):raise ValueError('任务ID格式不合法')
+    argv=task.get('argv')
+    if not isinstance(argv,list) or not argv or not all(isinstance(x,str) and x for x in argv):raise ValueError('argv必须是非空字符串数组')
+    if not isinstance(task.get('root'),str) or not Path(task['root']).is_absolute() or not Path(task['root']).is_dir():raise ValueError('root必须是存在的绝对目录')
+    env=task.get('env',{})
+    if not isinstance(env,dict) or not all(isinstance(k,str) and isinstance(v,str) for k,v in env.items()):raise ValueError('env格式不合法')
+    if not all(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',k) for k in env):raise ValueError('env变量名不合法')
+    if set(env)&{'CUDA_VISIBLE_DEVICES','GPU_QUEUE_JOB_ID','GPU_QUEUE_DATA_DIR'}:raise ValueError('设备和托管身份由队列设置')
+    for key in ('epochs','updates'):
+        if type(task.get(key,0)) is not int or task.get(key,0)<0:raise ValueError(key+'须为非负整数')
+    for key in ('status_file','completion_file','progress_key'):
+        if key in task and (not isinstance(task[key],str) or not task[key]):raise ValueError(key+'须为非空字符串')
+    if 'name' in task and (not isinstance(task['name'],str) or not task['name']):raise ValueError('name须为非空字符串')
+    if task.get('gpu') is not None and (type(task['gpu']) is not int or task['gpu']<0):raise ValueError('gpu须为非负整数或null')
+    if not isinstance(task.get('gpu_uuid',''),str):raise ValueError('gpu_uuid须为字符串')
+    if 'peak_memory_mib' in task:
+        from scheduling import memory_needed,DEFAULTS
+        memory_needed(task,DEFAULTS)
+    task=dict(task,kind='command',name=task.get('name',task['id']))
+    task.pop('submission_fingerprint',None)
+    fingerprint=hashlib.sha256(json.dumps({k:v for k,v in task.items() if k not in ('id','name')},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    if auto_id:task['id']=actor.username+'-'+task['id'][:46]
+    task.update(owner_id=actor.username,submission_fingerprint=fingerprint)
     def append(value):
         existing=value['tasks'].get(task['id'])
         if existing:
-            if existing.get('submission_fingerprint')!=task['submission_fingerprint']:
-                raise ValueError('同一任务ID已登记其他命令，请使用新ID')
-            return dict(id=existing['id'],state=existing['state'],duplicate=True,
-                        note='已登记，未重复入队；有意重跑请显式使用新的--id')
+            if existing.get('owner_id')!=actor.username or existing.get('submission_fingerprint')!=fingerprint:
+                raise PermissionError('任务ID不可用或与已有内容冲突')
+            return dict(id=existing['id'],owner_id=actor.username,state=existing['state'],duplicate=True)
         value['tasks'][task['id']]=dict(task,state='waiting',registered=time.time())
         value['order'].append(task['id'])
-        value['last_change']='命令行登记授权任务：'+task['name']
-        return dict(id=task['id'],state='waiting',duplicate=False,
-                    note='已加入队尾；常驻执行器按窗口和资源保护自动领取')
+        value['last_change']='登记授权任务：'+task['name']
+        return dict(id=task['id'],owner_id=actor.username,state='waiting',duplicate=False)
     return store.change(append)
+
+
+def submit(task,directory,session_file=None,auto_id=False):
+    from auth import read_session
+    from server_agent import rpc
+    session=read_session(session_file)
+    return rpc(dict(action='submit',task=task,auto_id=auto_id,token=session['token'],csrf=session['csrf']),QueueStore(directory))
 
 
 def main(argv=None):
@@ -124,7 +151,7 @@ def main(argv=None):
     options(parser)
     parser.add_argument('command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
-    result=submit(build_task(args,args.command),data_directory(args.data))
+    result=submit(build_task(args,args.command),data_directory(args.data),args.session_file,auto_id=args.id is None)
     print(json.dumps(result,ensure_ascii=False),flush=True)
     return result
 
@@ -144,12 +171,12 @@ def enqueue_if_requested(argv=None):
     options(parser,prefix='queue-')
     args,training_args=parser.parse_known_args(original)
     command=[sys.executable,str(Path(sys.argv[0]).absolute()),*training_args]
-    result=submit(build_task(args,command),data_directory(args.data))
+    result=submit(build_task(args,command),data_directory(args.data),args.session_file,auto_id=args.id is None)
     print(json.dumps(result,ensure_ascii=False),flush=True)
     raise SystemExit(0)
 
 
 if __name__=='__main__':
     try:main()
-    except (OSError,ValueError,KeyError,TypeError) as exc:
+    except (OSError,ValueError,KeyError,TypeError,AuthenticationError) as exc:
         print(str(exc),file=sys.stderr);sys.exit(1)

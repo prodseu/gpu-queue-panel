@@ -9,3 +9,7 @@ __pycache__/
 *.zip
 dist/
 .venv/
+
+runtime-data-rc/
+auth.sqlite*
+*.session.json

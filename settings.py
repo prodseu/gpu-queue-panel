@@ -11,12 +11,12 @@ def load():
     if not path.is_file():
         raise ValueError('请复制config.example.json为config.json，并将XXX替换为自己的配置')
     config=json.loads(path.read_text(encoding='utf-8-sig'))
-    config.setdefault('local_port',8787)
-    config.setdefault('tmux_session','gpu-queue-panel')
+    config.setdefault('local_port',8789)
+    config.setdefault('tmux_session','gpu-queue-panel-rc')
     config.setdefault('refresh_seconds',3)
     config.setdefault('stop_on_failure',False)
     config.setdefault('hold_rules',[])
-    config['data_path']=str((path.parent/Path(config.get('data_dir','runtime-data'))).resolve())
+    config['data_path']=str((path.parent/Path(config.get('data_dir','runtime-data-rc'))).resolve())
     return config
 
 

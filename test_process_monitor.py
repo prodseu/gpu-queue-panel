@@ -9,6 +9,7 @@ import gpu
 import process_monitor
 from queue_store import QueueStore,atomic
 from server_agent import rpc
+from auth import Accounts
 
 
 class ProcessTests(unittest.TestCase):
@@ -17,6 +18,8 @@ class ProcessTests(unittest.TestCase):
         self.store=QueueStore(self.root/'data')
         self.task=dict(id='R',name='our job',root=str(self.root/'job'),gpu=0,gpu_uuid='GPU-XXX-0',epochs=20,updates=100)
         self.store.initialize([self.task],[],running='R')
+        accounts=Accounts(self.store.directory);accounts.add("fixture","fixture-password-123","admin")
+        self.session=accounts.login("fixture","fixture-password-123")
         self.saved=dict(pid=101,start_ticks=11,boot='XXX')
         self.proc=dict(self.saved,state='R',uid=1000,args=['/XXX/bin/python','-u',(self.root/'job/train.py').as_posix()])
         atomic(self.root/'job/LAUNCH.json',dict(pid=101,identity=self.saved))
@@ -51,9 +54,9 @@ class ProcessTests(unittest.TestCase):
 
     def test_forged_cancel_and_reorder_do_not_modify_queue(self):
         item=self.inventory()['observed'][0];before=self.store.read()
-        with self.assertRaisesRegex(ValueError,'不可操作'):rpc(dict(action='cancel',id=item['id']),self.store)
-        with self.assertRaises(ValueError):rpc(dict(action='reorder',ids=[item['id']]),self.store)
-        with self.assertRaises(ValueError):rpc(dict(action='kill',pid=item['pid']),self.store)
+        with self.assertRaises(PermissionError):rpc(dict(action='cancel',id=item['id'],revision=before['revision'],token=self.session['token'],csrf=self.session['csrf']),self.store)
+        with self.assertRaises(ValueError):rpc(dict(action='reorder',ids=[item['id']],revision=before['revision'],token=self.session['token'],csrf=self.session['csrf']),self.store)
+        with self.assertRaises(ValueError):rpc(dict(action='kill',pid=item['pid'],token=self.session['token']),self.store)
         self.assertEqual(before,self.store.read())
 
     def test_old_PID_without_identity_is_not_inspected(self):
