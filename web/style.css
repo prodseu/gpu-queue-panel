@@ -8,3 +8,5 @@
 [hidden]{display:none!important}.login-panel{max-width:440px;margin:10vh auto;padding:32px;background:white;border:1px solid var(--line);border-radius:10px}.login-panel input{width:100%;font:inherit}.login-panel #login-error{color:#a33b31;min-height:20px}.account{display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:12px}.task-owner{font-size:10px;color:#587669;margin-top:6px}#settings-permission{font-size:11px;color:#829388}
 
 .gpu-cell select{max-width:100%;padding:6px;border:1px solid #ccd8cf;border-radius:5px;background:white;color:inherit}
+
+.mode-buttons{display:flex;gap:10px;flex-wrap:wrap}.mode-buttons [aria-pressed="true"]{background:#21865c;color:white}.actions{flex-wrap:wrap}

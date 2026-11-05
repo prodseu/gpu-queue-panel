@@ -61,7 +61,7 @@ function mergedOrder(ids){
 function render(){
  principal=state.user||principal;
  $('#user-label').textContent=principal.username+' · '+(principal.role==='admin'?'管理员':'用户');
- renderScheduling();
+ renderQueueControl();renderScheduling();
  gpuHistory=state.gpu_history||{};
  const focused=document.activeElement?.dataset.gpuSelect;
  let device=state.gpus.find(g=>gpuKey(g)===selectedGpu);
@@ -83,12 +83,13 @@ function render(){
   const running=t.state==='running',p=t.progress||{},status=p.status||{},index=pending.findIndex(x=>x.id===t.id),current=status.updates;
   const gpu=state.gpus.find(g=>onGPU(t,g)),label=gpu?'GPU '+gpu.index:t.gpu_uuid?'GPU 暂不可用':t.gpu!=null?'GPU '+t.gpu:'CPU';
   if(t.read_only)return `<div class="task read-only" data-id="${esc(t.id)}" draggable="false"><span class="process-lock" aria-label="只读">🔒</span><div><div class="task-name">${esc(t.name)}</div><div class="task-id">未纳管进程 · NVIDIA元信息</div>${t.python?`<div class="python-path" title="${esc(t.python)}">Python: ${esc(t.python)}</div>`:''}</div><div><span class="badge read-only-badge">不可操作</span></div><div class="gpu-cell">${label}</div><div class="process-meta">PID ${esc(t.pid)}<div class="process-memory">${t.memory_used_mib==null?'显存暂不可用':number(t.memory_used_mib,0)+' MiB'}</div></div><div class="read-only-note">仅监控</div></div>`;
-  return `<div class="task ${running?'running':''}" data-id="${esc(t.id)}" data-managed="true" draggable="${!running}"><span class="drag">${running?'●':'⠿'}</span><div><div class="task-name">${esc(t.name)}</div><div class="task-id">${esc(t.id)}</div><div class="task-owner">所属用户：${esc(t.owner_id||'未分配')}</div>${processDetails(t.processes)}</div><div><span class="badge">${running?'运行中':'等待 '+(index+1)}</span>${selectedGpu&&!running?`<div class="global-order">总序 ${allPending.findIndex(x=>x.id===t.id)+1}</div>`:''}</div><div class="gpu-cell">${!running&&(t.gpu_uuid||t.gpu!=null)?`<select data-gpu-target="${esc(t.id)}" aria-label="切换 ${esc(t.name)} 的GPU">${state.gpus.some(g=>onGPU(t,g))?'':`<option value="" selected disabled>${label}</option>`}${state.gpus.map(g=>`<option value="${esc(g.uuid)}" ${onGPU(t,g)?'selected':''}>GPU ${g.index}</option>`).join('')}</select>`:label}</div><div><div class="progress-text"><span>${p.percent==null?'尚未开始':p.percent.toFixed(1)+'%'}</span><span>${current==null?'':current+' / '+t.updates}</span></div>${bar(p.percent)}<div class="task-id">${status.epoch?'第 '+status.epoch+' / '+t.epochs+' 轮':''}</div></div><div class="actions">${running?'':`<button data-move="-1" data-id="${esc(t.id)}" ${index===0?'disabled':''} title="上移">↑</button><button data-move="1" data-id="${esc(t.id)}" ${index===pending.length-1?'disabled':''} title="下移">↓</button><button data-cancel="${esc(t.id)}">取消</button>`}</div></div>`;
+  return `<div class="task ${running?'running':''}" data-id="${esc(t.id)}" data-managed="true" draggable="${!running}"><span class="drag">${running?'●':'⠿'}</span><div><div class="task-name">${esc(t.name)}</div><div class="task-id">${esc(t.id)}</div><div class="task-owner">所属用户：${esc(t.owner_id||'未分配')}</div>${processDetails(t.processes)}</div><div><span class="badge">${running?'运行中':'等待 '+(index+1)}</span>${selectedGpu&&!running?`<div class="global-order">总序 ${allPending.findIndex(x=>x.id===t.id)+1}</div>`:''}</div><div class="gpu-cell">${!running&&(t.gpu_uuid||t.gpu!=null)?`<select data-gpu-target="${esc(t.id)}" aria-label="切换 ${esc(t.name)} 的GPU">${state.gpus.some(g=>onGPU(t,g))?'':`<option value="" selected disabled>${label}</option>`}${state.gpus.map(g=>`<option value="${esc(g.uuid)}" ${onGPU(t,g)?'selected':''}>GPU ${g.index}</option>`).join('')}</select>`:label}</div><div><div class="progress-text"><span>${p.percent==null?'尚未开始':p.percent.toFixed(1)+'%'}</span><span>${current==null?'':current+' / '+t.updates}</span></div>${bar(p.percent)}<div class="task-id">${status.epoch?'第 '+status.epoch+' / '+t.epochs+' 轮':''}</div></div><div class="actions">${!running&&state.queue_control?.mode==='manual'?`<button data-start="${esc(t.id)}" ${state.queue_control.paused||t.manual_start_requested?'disabled':''}>${t.manual_start_requested?'待启动':'启动'}</button>`:''}${running?'':`<button data-move="-1" data-id="${esc(t.id)}" ${index===0?'disabled':''} title="上移">↑</button><button data-move="1" data-id="${esc(t.id)}" ${index===pending.length-1?'disabled':''} title="下移">↓</button><button data-cancel="${esc(t.id)}">取消</button>`}</div></div>`;
  }).join('')}</div>`:`<div class="empty">${selectedGpu?'这张显卡没有你的运行或等待任务。':'当前没有等待或运行中的任务。'}</div>`;
  $('#controller').textContent=state.controller||'';$$('.fill').forEach(e=>e.style.width=e.dataset.width+'%');drawGPUCharts();
  $$('[data-gpu-select]').forEach(e=>e.addEventListener('click',()=>selectGPU(e.dataset.gpuSelect)));
  if(focused)$$('[data-gpu-select]').find(e=>e.dataset.gpuSelect===focused)?.focus({preventScroll:true});
  $$('[data-gpu-target]').forEach(e=>{e.addEventListener('change',()=>change('move_gpu',{id:e.dataset.gpuTarget,gpu_uuid:e.value},'已切换等待任务GPU，队列位置保持。'));e.addEventListener('pointerdown',v=>v.stopPropagation());e.addEventListener('dragstart',v=>{v.preventDefault();v.stopPropagation();});});
+ $$('[data-start]').forEach(e=>e.addEventListener('click',()=>change('start',{id:e.dataset.start},'启动请求已提交，由常驻队列领取。')));
  $$('[data-cancel]').forEach(e=>e.addEventListener('click',()=>change('cancel',{id:e.dataset.cancel},'已取消该等待项，其他任务不变。')));
  $$('[data-move]').forEach(e=>e.addEventListener('click',()=>{const ids=pending.map(t=>t.id),i=ids.indexOf(e.dataset.id),to=i+Number(e.dataset.move);if(to<0||to>=ids.length)return;[ids[i],ids[to]]=[ids[to],ids[i]];change('reorder',{ids:mergedOrder(ids)},'等待顺序已保存。');}));
  $$('.task[draggable=true]').forEach(e=>{e.addEventListener('dragstart',v=>{dragging=e.dataset.id;v.dataTransfer.setData('text/plain',dragging);e.classList.add('dragging');});e.addEventListener('dragend',()=>{dragging=null;e.classList.remove('dragging');$$('.drop').forEach(x=>x.classList.remove('drop'));});e.addEventListener('dragover',v=>{v.preventDefault();e.classList.add('drop');});e.addEventListener('dragleave',()=>e.classList.remove('drop'));e.addEventListener('drop',v=>{v.preventDefault();const ids=pending.map(t=>t.id),from=ids.indexOf(v.dataTransfer.getData('text/plain')),to=ids.indexOf(e.dataset.id);dragging=null;if(from<0||to<0||from===to)return;const[id]=ids.splice(from,1);ids.splice(to,0,id);change('reorder',{ids:mergedOrder(ids)},'等待顺序已保存。');});});
@@ -146,3 +147,19 @@ $('#logout').addEventListener('click',async()=>{
 })();
 setInterval(refresh,3000);
 window.addEventListener('resize',drawGPUCharts);
+
+function renderQueueControl(){
+ const control=state.queue_control||{mode:'auto',paused:false},admin=principal?.role==='admin';
+ $('#control-state').textContent=(control.mode==='manual'?'手动模式':'自动模式')+' · '+(control.paused?'领取已关闭':'领取已开启');
+ $('#mode-auto').setAttribute('aria-pressed',String(control.mode==='auto'));
+ $('#mode-manual').setAttribute('aria-pressed',String(control.mode==='manual'));
+ for(const id of ['mode-auto','mode-manual','toggle-admission'])$('#'+id).disabled=!admin;
+ $('#toggle-admission').textContent=control.paused?'开启领取':'关闭领取';
+ $('#control-hint').textContent=control.paused?'领取已关闭。运行中的程序继续，等待任务保留。':control.mode==='manual'?'点击等待任务的“启动”后直接领取，跳过自动显存、并发、占用与冷却检查。由你决定何时共用GPU。':'按队列顺序自动领取，使用并发窗口、显存与GPU进程保护。';
+}
+for(const [id,mode] of [['mode-auto','auto'],['mode-manual','manual']])$('#'+id).addEventListener('click',()=>{
+ if(!state)return;change('queue_control',{mode,paused:state.queue_control?.paused||false},'队列模式已更新。');
+});
+$('#toggle-admission').addEventListener('click',()=>{
+ if(!state)return;change('queue_control',{mode:state.queue_control?.mode||'auto',paused:!state.queue_control?.paused},'领取开关已更新。');
+});

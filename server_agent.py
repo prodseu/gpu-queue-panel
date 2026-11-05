@@ -12,6 +12,7 @@ from queue_store import QueueStore, atomic
 from gpu_history import update as update_history
 from settings import load as load_config
 import process_monitor
+from queue_control import controls
 from scheduling import policy, running_ids
 from auth import Accounts,Actor,AuthenticationError,visible,allowed_task,require_rc
 
@@ -36,7 +37,7 @@ def snapshot(store,actor):
         task = state['tasks'][task_id]
         progress = load(dict(status_file=str(Path(task['root']) / task.get('status_file','run/STATUS.json')),
                              progress_key=task.get('progress_key','updates'), total=task.get('updates',0)))
-        rows.append(dict(owner_id=task.get('owner_id'),id=task_id, name=task['name'], state=task['state'], gpu=task.get('gpu'),gpu_uuid=task.get('gpu_uuid'),
+        rows.append(dict(manual_start_requested=bool(task.get('manual_start_request')),owner_id=task.get('owner_id'),id=task_id, name=task['name'], state=task['state'], gpu=task.get('gpu'),gpu_uuid=task.get('gpu_uuid'),
                          epochs=task.get('epochs',0), updates=task.get('updates',0), progress=progress,processes=inventory['tasks'].get(task_id,[]),
                          order=scoped['order'].index(task_id) + 1 if task_id in scoped['order'] else None))
     status_path=store.directory/'scheduler_status.json'
@@ -51,7 +52,7 @@ def snapshot(store,actor):
     if not actor.admin:
         scheduler={k:v for k,v in scheduler.items() if k in ('time','window','halted')}
         scheduler.update(running=own_running,reason='全局调度由管理员管理；下方仅显示本人任务')
-    return dict(user=actor.public(),scheduling=policy(state), scheduler=scheduler, revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),monitor_processes=inventory['observed'],process_error=inventory['error'],
+    return dict(user=actor.public(),queue_control=controls(state),scheduling=policy(state), scheduler=scheduler, revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),monitor_processes=inventory['observed'],process_error=inventory['error'],
                 gpu_history=history.get('history',{}),history_updated=history.get('updated'),history_window_seconds=300,
                 sampled=cached.get('sampled'), gpu_error=cached.get('gpu_error'),
                 last_change=state['last_change'] if actor.admin else '个人队列视图', controller=cached.get('controller','准备中') if actor.admin else '仅本人任务可取消与排序；其他进程只读')
@@ -62,7 +63,7 @@ def rpc(request, store):
     accounts=Accounts(store.directory)
     action=request.get('action')
     if action=='login':return accounts.login(request.get('username'),request.get('password'))
-    mutating=action in ('logout','cancel','reorder','configure','submit','move_gpu')
+    mutating=action in ('logout','cancel','reorder','configure','submit','move_gpu','queue_control','start')
     actor,session=accounts.session(request.get('token'))
     if mutating:actor,session=accounts.session(request.get('token'),request.get('csrf',''))
     if action=='me':return dict(user=actor.public(),**session)
@@ -78,6 +79,12 @@ def rpc(request, store):
         with path.open('rb') as f:
             f.seek(cursor);body=f.read(maximum)
         return dict(id=request['id'],text=body.decode('utf-8',errors='replace'),next_cursor=cursor+len(body))
+    if action in ('queue_control','start'):
+        if type(request.get('revision')) is not int:raise ValueError('请先刷新队列')
+        from queue_control import configure,request_start
+        if action=='start':request_start(store,request.get('id'),request['revision'],actor)
+        else:configure(store,request.get('mode'),request.get('paused'),request['revision'],actor)
+        return dict(snapshot(store,actor),csrf=session['csrf'])
     if action=='move_gpu':
         from gpu_transfer import move
         move(store,request.get('id'),request.get('gpu_uuid'),request.get('revision'),actor)

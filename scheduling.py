@@ -170,22 +170,32 @@ class Dispatcher:
         value = self.store.read()
         settings = policy(value)
         reason = '暂停领取：任务失败；其余运行项继续，等待项保留' if self.halted else '等待队列任务'
-        if not self.halted and value['order']:
-            candidate = value['tasks'][value['order'][0]]
-            from auth import Accounts
-            if not candidate.get('owner_id') or not Accounts(self.store.directory).enabled(candidate['owner_id']):
-                allowed,reason=False,'队首任务未分配用户或用户已停用；请管理员处理'
-            else:
-                allowed, reason = self.admission.check(candidate, value)
-            if allowed:
-                task = self.store.claim_if(candidate['id'], value['revision'])
-                if task:
-                    self.launch(task)
-                    reason = '任务已启动，等待资源稳定后再判断下一项'
+        from queue_control import controls, manual_candidate, manual_admission
+        control = controls(value)
+        if control['paused']:
+            reason = '已暂停领取；运行任务继续'
+        elif control['mode'] == 'manual':
+            reason = '手动模式，等待点击任务启动'
+        if not self.halted and not control['paused'] and value['order']:
+            manual = control['mode'] == 'manual'
+            candidate = manual_candidate(value) if manual else value['tasks'][value['order'][0]]
+            if candidate:
+                from auth import Accounts
+                if manual:
+                    allowed, reason = manual_admission(candidate, self.store.directory)
+                elif not candidate.get('owner_id') or not Accounts(self.store.directory).enabled(candidate['owner_id']):
+                    allowed, reason = False, '队首账号未分配或已停用，请管理员处理'
+                else:
+                    allowed, reason = self.admission.check(candidate, value)
+                if allowed:
+                    task = self.store.claim_if(candidate['id'], value['revision'], manual=manual)
+                    if task:
+                        self.launch(task)
+                        reason = '手动任务已启动' if manual else '任务已启动，等待资源稳定后再判断下一项'
         value = self.store.read()
         ids = running_ids(value)
         atomic(self.store.directory / self.status_name, dict(time=time.time(),
-            running=ids, window=settings['window'], reason=reason, halted=self.halted))
+            running=ids, window=settings['window'], mode=control['mode'], paused=control['paused'], reason=reason, halted=self.halted))
         if not ids and not value['order']:
             self.phase('队列为空，持续待命；新任务加入后自动接续')
         else:

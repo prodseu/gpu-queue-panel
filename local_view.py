@@ -89,7 +89,7 @@ def create_server(client,port=8789):
             self.send(status,{'error':str(exc)},cookie=(COOKIE+'=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0') if status==401 else None)
         def do_GET(self):
             if not self.origin():return self.send(403,{'error':'仅供本机访问'})
-            if self.path=='/health':return self.send(200,{'application':'gpu-queue-panel-multiuser','prerelease':'0.5.0-rc.2'})
+            if self.path=='/health':return self.send(200,{'application':'gpu-queue-panel-multiuser','prerelease':'0.5.0-rc.3'})
             if self.path=='/api/me':
                 try:self.send(200,client.request(dict(action='me',token=self.token())))
                 except Exception as exc:self.failed(exc)
@@ -113,7 +113,7 @@ def create_server(client,port=8789):
                     result=client.request(dict(action='logout',token=self.token(),csrf=self.headers.get('X-CSRF-Token','')))
                     self.send(200,result,cookie=COOKIE+'=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0')
                 elif self.path=='/api/queue':
-                    if request.get('action') not in ('state','cancel','reorder','configure','logs','move_gpu'):raise ValueError('网页仅支持查询、日志、等待项操作及管理员设置')
+                    if request.get('action') not in ('state','cancel','reorder','configure','logs','move_gpu','queue_control','start'):raise ValueError('网页仅支持查询、日志、等待项操作及管理员设置')
                     request.update(token=self.token(),csrf=self.headers.get('X-CSRF-Token',''))
                     self.send(200,client.request(request))
                 else:self.send(404,{'error':'未知地址'})

@@ -113,7 +113,7 @@ class QueueStore:
             value['last_change'] = '更新并发窗口和资源保护；运行项保持执行'
         return self.change(update, revision)
 
-    def claim(self, expected_id=None, revision=None):
+    def claim(self, expected_id=None, revision=None, manual=False):
         from scheduling import policy, running_ids, memory_needed
         with self.locked():
             value = json.loads(self.path.read_text(encoding='utf-8'))
@@ -121,19 +121,33 @@ class QueueStore:
                 return None
             if not value['order']:
                 return None
-            if expected_id is not None and value['order'][0] != expected_id:
+            from queue_control import controls
+            control = controls(value)
+            if control['paused'] or (control['mode'] == 'manual') != manual:
                 return None
-            window = policy(value)['window']
-            if window != -1 and len(running_ids(value)) >= window:
-                return None
-            task_id = value['order'][0]
+            if manual:
+                if expected_id not in value['order']:
+                    return None
+                task_id = expected_id
+                request = value['tasks'][task_id].get('manual_start_request')
+                if not request:
+                    return None
+            else:
+                if expected_id is not None and value['order'][0] != expected_id:
+                    return None
+                window = policy(value)['window']
+                if window != -1 and len(running_ids(value)) >= window:
+                    return None
+                task_id = value['order'][0]
             task = value['tasks'][task_id]
             from auth import Accounts
             if not task.get('owner_id') or not Accounts(self.directory).enabled(task['owner_id']):
                 return None
             if task.get('gpu_uuid'):
                 task['reserved_peak_memory_mib'] = memory_needed(task, policy(value))
-            value['order'].pop(0)
+            value['order'].remove(task_id)
+            if manual:
+                task['manual_start_authorization'] = task.pop('manual_start_request')
             task.update(state='running', started=time.time())
             value['running'] = running_ids(value)[0]  # compatibility: one active ID; tasks holds the full set
             value['last_change'] = '开始既有队列任务：' + task['name']
@@ -142,8 +156,8 @@ class QueueStore:
             atomic(self.path, value)
             return dict(task)
 
-    def claim_if(self, task_id, revision):
-        return self.claim(task_id, revision)
+    def claim_if(self, task_id, revision, manual=False):
+        return self.claim(task_id, revision, manual=manual)
 
     def finish(self, task_id, success, note=''):
         from scheduling import running_ids

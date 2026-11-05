@@ -1,6 +1,6 @@
 # Multiuser RC working rules
 
-- This branch is 0.5.0-rc.2, an isolated preview. Never deploy/restart/modify the current production queue or push this branch to stable main implicitly.
+- This branch is 0.5.0-rc.3, an isolated preview. Never deploy/restart/modify the current production queue or push this branch to stable main implicitly.
 - Use new source/data/config directories, port 8789 and tmux gpu-queue-panel-rc. Refuse non-RC data; do not migrate production jobs automatically.
 - Every authorized training uses authenticated qrun/submit or the early --queue hook; preserve finite budgets, validation and stable IDs. Do not run a real training to test enrollment.
 - Server RPC must authenticate and check ownership before reading progress, process identities or logs and before changing queues. Never trust client owner/role fields.
@@ -13,3 +13,6 @@
 - Run meaningful isolated account/RPC/HTTP/CPU and browser checks. Record Linux/GPU checks not run; never claim production validation from fixtures.
 
 - Waiting GPU reassignment must authenticate ownership and validate revision inside the queue lock. Resolve the target from fresh NVIDIA UUIDs. Preserve global order, budgets, and all other tasks. A stale claim must fail after reassignment. Scientific config changes happen only in the registered worker before launch, with a saved original and no run directory.
+
+- Automatic/manual controls use metadata.queue_control. Admin alone changes global mode/pause, ordinary users request only their own waiting tasks. Manual requests bypass automatic capacity/admission gates but require an existing GPU and enabled owner. Every claim rechecks current mode, pause, revision and explicit request under the queue lock.
+- Pause and mode switches revoke unclaimed manual requests, preserving running jobs. Manual mode never grants agents permission to launch newly submitted work autonomously. Use the existing single Dispatcher, with no extra admission loop.
