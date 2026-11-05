@@ -1,7 +1,7 @@
-# Multiuser RC working rules
+# Queue operations
 
-- This branch is 0.5.0-rc.3, an isolated preview. Never deploy/restart/modify the current production queue or push this branch to stable main implicitly.
-- Use new source/data/config directories, port 8789 and tmux gpu-queue-panel-rc. Refuse non-RC data; do not migrate production jobs automatically.
+- Version 0.5.0 uses authenticated multiuser queues. Preserve existing account ownership, sessions, and configuration when updating.
+- Existing single-user queues require explicit migration and owner assignment. Never infer ownership or adopt a live process automatically.
 - Every authorized training uses authenticated qrun/submit or the early --queue hook; preserve finite budgets, validation and stable IDs. Do not run a real training to test enrollment.
 - Server RPC must authenticate and check ownership before reading progress, process identities or logs and before changing queues. Never trust client owner/role fields.
 - Ordinary users reorder only their own slots; preserve all foreign slots. Cancel only own waiting tasks. Admin manages all waiting items and global settings; nobody signals running or external jobs.

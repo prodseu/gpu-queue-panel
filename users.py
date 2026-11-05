@@ -20,7 +20,7 @@ def main():
     p=sub.add_parser('assign');p.add_argument('task_id');p.add_argument('username')
     args=parser.parse_args();store=QueueStore(args.data or load()['data_path'])
     if not store.path.exists():
-        if args.action!='bootstrap':raise ValueError('请先bootstrap初始化预发布队列')
+        if args.action!='bootstrap':raise ValueError('请先bootstrap初始化多用户队列')
         store.initialize([],[],metadata={'multiuser_rc':True})
     require_rc(store);accounts=Accounts(store.directory)
     if args.action=='bootstrap':

@@ -137,7 +137,7 @@ class Accounts:
 
 def require_rc(store):
     if store.read().get('metadata',{}).get('multiuser_rc') is not True:
-        raise ValueError('此目录不是多用户预发布队列，拒绝接管现有运行数据')
+        raise ValueError('此目录不是多用户队列，拒绝接管现有运行数据')
 
 
 def visible(task,actor):return actor.admin or task.get('owner_id')==actor.username
@@ -155,7 +155,7 @@ def session_path(override=None):
 
 def read_session(override=None):
     try:return __import__('json').loads(session_path(override).read_text(encoding='utf-8'))
-    except (OSError,ValueError):raise AuthenticationError('请先运行users.py login登录预发布版') from None
+    except (OSError,ValueError):raise AuthenticationError('请先运行users.py login登录多用户版') from None
 
 
 def save_session(value,override=None):

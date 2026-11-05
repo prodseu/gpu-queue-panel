@@ -1,4 +1,4 @@
-"""Authenticated prerelease queue CLI. Sessions come from users.py login."""
+"""Authenticated multiuser queue CLI. Sessions come from users.py login."""
 import argparse,json,sys
 from auth import read_session,AuthenticationError
 from queue_store import QueueStore

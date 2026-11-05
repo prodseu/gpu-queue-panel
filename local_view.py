@@ -89,7 +89,7 @@ def create_server(client,port=8789):
             self.send(status,{'error':str(exc)},cookie=(COOKIE+'=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0') if status==401 else None)
         def do_GET(self):
             if not self.origin():return self.send(403,{'error':'仅供本机访问'})
-            if self.path=='/health':return self.send(200,{'application':'gpu-queue-panel-multiuser','prerelease':'0.5.0-rc.3'})
+            if self.path=='/health':return self.send(200,{'application':'gpu-queue-panel-multiuser','version':'0.5.0'})
             if self.path=='/api/me':
                 try:self.send(200,client.request(dict(action='me',token=self.token())))
                 except Exception as exc:self.failed(exc)
@@ -126,7 +126,7 @@ def create_server(client,port=8789):
 def serve():
     config=load();client=SSH(config)
     server=create_server(client,int(config['local_port']))
-    print(f'多用户预发布界面 http://127.0.0.1:{server.server_port}/ （用户名/密码登录）',flush=True)
+    print(f'多用户队列界面 http://127.0.0.1:{server.server_port}/ （用户名/密码登录）',flush=True)
     try:server.serve_forever()
     except KeyboardInterrupt:pass
     finally:
