@@ -132,6 +132,8 @@ def enroll(task,store,actor,auto_id=False):
             if existing.get('owner_id')!=actor.username or existing.get('submission_fingerprint')!=fingerprint:
                 raise PermissionError('任务ID不可用或与已有内容冲突')
             return dict(id=existing['id'],owner_id=actor.username,state=existing['state'],duplicate=True)
+        from gpu_transfer import wrap_command
+        wrap_command(task,store.directory)
         value['tasks'][task['id']]=dict(task,state='waiting',registered=time.time())
         value['order'].append(task['id'])
         value['last_change']='登记授权任务：'+task['name']

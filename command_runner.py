@@ -10,6 +10,8 @@ from queue_store import atomic
 
 
 def execute(task, store, phase):
+    from gpu_transfer import prepare_scientific_config
+    prepare_scientific_config(task)
     directory=store.directory/'jobs'/task['id']
     directory.mkdir(parents=True,exist_ok=False)
     root=Path(task['root'])

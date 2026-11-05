@@ -1,5 +1,7 @@
 """Move a waiting task to a freshly discovered GPU under the queue lock."""
 import time
+import sys
+from pathlib import Path
 
 import gpu
 from auth import allowed_task
@@ -32,9 +34,24 @@ def move(store, task_id, target_uuid, revision, actor):
         task['gpu_assignment'] = dict(previous=previous, index=target['index'],
                                       uuid=target['uuid'], changed_by=actor.username,
                                       changed_at=time.time())
+        wrap_command(task, store.directory)
         value['last_change'] = '切换等待任务GPU：' + task['name']
 
     return store.change(update, revision)
+
+
+def wrap_command(task, directory):
+    """An already loaded worker can launch this fresh entry after a GPU move.
+
+    The entry execs the original argv in the same PID after syncing config, so
+    the worker's log, identity and exit receipt still belong to the real command.
+    """
+    if task.get('kind') != 'command':
+        return
+    if 'original_argv' not in task:
+        task['original_argv'] = list(task['argv'])
+    task['argv'] = [sys.executable, str(Path(__file__).with_name('queued_command.py')),
+                    '--data', str(directory), '--id', task['id']]
 
 
 def prepare_scientific_config(task):
@@ -46,16 +63,17 @@ def prepare_scientific_config(task):
     if not task.get('gpu_assignment'):
         return
     import json
-    from pathlib import Path
     from queue_store import atomic
 
     root = Path(task['root'])
-    if (root / 'run').exists():
-        raise ValueError('已有运行目录，拒绝修改训练设备配置')
     path = root / 'config.json'
     if not path.is_file():
         return
     config = json.loads(path.read_text(encoding='utf-8'))
+    if not any(key in config for key in ('gpu', 'gpu_uuid', 'authorized_physical_gpu')):
+        return
+    if (root / 'run').exists():
+        raise ValueError('已有运行目录，拒绝修改训练设备配置')
     backup = root / 'GPU_ASSIGNMENT_ORIGINAL_CONFIG.json'
     if not backup.exists():
         atomic(backup, config)

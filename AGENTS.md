@@ -16,3 +16,5 @@
 
 - Automatic/manual controls use metadata.queue_control. Admin alone changes global mode/pause, ordinary users request only their own waiting tasks. Manual requests bypass automatic capacity/admission gates but require an existing GPU and enabled owner. Every claim rechecks current mode, pause, revision and explicit request under the queue lock.
 - Pause and mode switches revoke unclaimed manual requests, preserving running jobs. Manual mode never grants agents permission to launch newly submitted work autonomously. Use the existing single Dispatcher, with no extra admission loop.
+
+- Command jobs use queued_command.py and keep the original executable/arguments in original_argv. Explicit GPU reassignment config sync must apply to command tasks as well as private scientific tasks. Keep entry wrapping idempotent, and preserve POSIX exec identity, logging and exit receipts. Regression checks must exercise the already-loaded legacy runner path.
