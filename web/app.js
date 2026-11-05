@@ -105,7 +105,11 @@ function renderScheduling(){
  const admin=principal?.role==='admin';
  for(const input of $('#scheduling-form').querySelectorAll('input,button'))input.disabled=!admin;
  $('#settings-permission').textContent=admin?'管理员可修改全局设置':'仅管理员可修改；当前为只读';
- $('#scheduler-usage').textContent=`运行 ${state.tasks.filter(t=>t.state==='running').length} / 窗口 ${settings.window===-1?'不限制':settings.window}`;
+ const limit=settings.window===-1?'不限制':settings.window;
+ const counts=state.gpus.map(g=>'GPU '+g.index+' '+state.tasks.filter(t=>t.state==='running'&&onGPU(t,g)).length);
+ const cpu=state.tasks.filter(t=>t.state==='running'&&t.gpu==null&&!t.gpu_uuid).length;
+ if(cpu)counts.push('CPU '+cpu);
+ $('#scheduler-usage').textContent=`每卡窗口 ${limit} · ${principal?.role==='admin'?'':'本人 '}${counts.join(' · ')}`;
  const status=state.scheduler||{},age=Date.now()/1000-(status.time||0);
  $('#admission-reason').textContent=status.reason?(age>15?'调度状态待更新 · ':'')+status.reason:'等待调度器加载新版本';
  if(!settingsDirty)for(const [key,value] of Object.entries(settings)){
@@ -155,7 +159,7 @@ function renderQueueControl(){
  $('#mode-manual').setAttribute('aria-pressed',String(control.mode==='manual'));
  for(const id of ['mode-auto','mode-manual','toggle-admission'])$('#'+id).disabled=!admin;
  $('#toggle-admission').textContent=control.paused?'开启领取':'关闭领取';
- $('#control-hint').textContent=control.paused?'领取已关闭。运行中的程序继续，等待任务保留。':control.mode==='manual'?'点击等待任务的“启动”后直接领取，跳过自动显存、并发、占用与冷却检查。由你决定何时共用GPU。':'按队列顺序自动领取，使用并发窗口、显存与GPU进程保护。';
+ $('#control-hint').textContent=control.paused?'领取已关闭。运行中的程序继续，等待任务保留。':control.mode==='manual'?'点击等待任务的“启动”后直接领取，跳过自动显存、并发、占用与冷却检查。由你决定何时共用GPU。':'按每张卡的等待顺序自动领取，分别计算单卡窗口和显存保护。';
 }
 for(const [id,mode] of [['mode-auto','auto'],['mode-manual','manual']])$('#'+id).addEventListener('click',()=>{
  if(!state)return;change('queue_control',{mode,paused:state.queue_control?.paused||false},'队列模式已更新。');

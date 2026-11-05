@@ -50,7 +50,7 @@ def snapshot(store,actor):
             if phase_path.exists():cached['controller']=json.loads(phase_path.read_text()).get('phase','')
     scheduler=json.loads(status_path.read_text()) if status_path.exists() else {}
     if not actor.admin:
-        scheduler={k:v for k,v in scheduler.items() if k in ('time','window','halted')}
+        scheduler={k:v for k,v in scheduler.items() if k in ('time','window','window_scope','mode','paused','halted')}
         scheduler.update(running=own_running,reason='全局调度由管理员管理；下方仅显示本人任务')
     return dict(user=actor.public(),queue_control=controls(state),scheduling=policy(state), scheduler=scheduler, revision=state['revision'], tasks=rows, gpus=cached.get('gpus', []),monitor_processes=inventory['observed'],process_error=inventory['error'],
                 gpu_history=history.get('history',{}),history_updated=history.get('updated'),history_window_seconds=300,

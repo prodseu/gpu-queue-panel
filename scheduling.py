@@ -23,6 +23,34 @@ def running_ids(value):
     return [key for key, task in value['tasks'].items() if task['state'] == 'running']
 
 
+def queue_key(task):
+    """GPU UUID identifies a device queue; CPU work has its own queue."""
+    if task.get('gpu_uuid'):
+        return task['gpu_uuid']
+    if task.get('gpu') is not None:
+        return 'index:' + str(task['gpu'])
+    return 'cpu'
+
+
+def running_in_queue(value, task):
+    key = queue_key(task)
+    return [job_id for job_id in running_ids(value)
+            if queue_key(value['tasks'][job_id]) == key]
+
+
+def queue_heads(value):
+    """Keep FIFO within each device, without blocking other devices' heads."""
+    seen = set()
+    heads = []
+    for job_id in value['order']:
+        task = value['tasks'][job_id]
+        key = queue_key(task)
+        if key not in seen:
+            heads.append(task)
+            seen.add(key)
+    return heads
+
+
 def validate(settings):
     limits = dict(window=(1, 8), reserve_mib=(1024, 1048576),
                   memory_limit_percent=(10, 95), default_peak_mib=(1024, 1048576),
@@ -60,8 +88,8 @@ class Admission:
         now = time.time() if now is None else now
         settings = policy(value)
         active = running_ids(value)
-        if settings['window'] != -1 and len(active) >= settings['window']:
-            return False, '并发窗口已满；缩窗不影响运行项'
+        if settings['window'] != -1 and len(running_in_queue(value, task)) >= settings['window']:
+            return False, '该卡队列窗口已满；缩窗不影响运行项'
         uuid = task.get('gpu_uuid')
         if not uuid:
             if task.get('gpu') is not None:
@@ -178,8 +206,11 @@ class Dispatcher:
             reason = '手动模式，等待点击任务启动'
         if not self.halted and not control['paused'] and value['order']:
             manual = control['mode'] == 'manual'
-            candidate = manual_candidate(value) if manual else value['tasks'][value['order'][0]]
-            if candidate:
+            candidates = [manual_candidate(value)] if manual else queue_heads(value)
+            blocked = []
+            for candidate in candidates:
+                if candidate is None:
+                    continue
                 from auth import Accounts
                 if manual:
                     allowed, reason = manual_admission(candidate, self.store.directory)
@@ -192,15 +223,20 @@ class Dispatcher:
                     if task:
                         self.launch(task)
                         reason = '手动任务已启动' if manual else '任务已启动，等待资源稳定后再判断下一项'
+                        break
+                blocked.append(str(candidate.get('gpu', 'CPU')) + ': ' + reason)
+            else:
+                if blocked:
+                    reason = '；'.join(blocked)
         value = self.store.read()
         ids = running_ids(value)
         atomic(self.store.directory / self.status_name, dict(time=time.time(),
-            running=ids, window=settings['window'], mode=control['mode'], paused=control['paused'], reason=reason, halted=self.halted))
+            running=ids, window=settings['window'], window_scope='per_gpu', mode=control['mode'], paused=control['paused'], reason=reason, halted=self.halted))
         if not ids and not value['order']:
             self.phase('队列为空，持续待命；新任务加入后自动接续')
         else:
             window = '不限制' if settings['window'] == -1 else settings['window']
-            self.phase(f"运行 {len(ids)}/{window} · {reason}")
+            self.phase(f"运行 {len(ids)} · 每卡窗口 {window} · {reason}")
         return value
 
     def run(self):

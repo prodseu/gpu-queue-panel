@@ -114,7 +114,7 @@ class QueueStore:
         return self.change(update, revision)
 
     def claim(self, expected_id=None, revision=None, manual=False):
-        from scheduling import policy, running_ids, memory_needed
+        from scheduling import policy, running_ids, running_in_queue, queue_heads, memory_needed
         with self.locked():
             value = json.loads(self.path.read_text(encoding='utf-8'))
             if revision is not None and value['revision'] != revision:
@@ -133,12 +133,13 @@ class QueueStore:
                 if not request:
                     return None
             else:
-                if expected_id is not None and value['order'][0] != expected_id:
+                heads = queue_heads(value)
+                task_id = expected_id if expected_id is not None else heads[0]['id']
+                if task_id not in {task['id'] for task in heads}:
                     return None
                 window = policy(value)['window']
-                if window != -1 and len(running_ids(value)) >= window:
+                if window != -1 and len(running_in_queue(value, value['tasks'][task_id])) >= window:
                     return None
-                task_id = value['order'][0]
             task = value['tasks'][task_id]
             from auth import Accounts
             if not task.get('owner_id') or not Accounts(self.directory).enabled(task['owner_id']):

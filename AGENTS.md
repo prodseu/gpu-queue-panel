@@ -18,3 +18,5 @@
 - Pause and mode switches revoke unclaimed manual requests, preserving running jobs. Manual mode never grants agents permission to launch newly submitted work autonomously. Use the existing single Dispatcher, with no extra admission loop.
 
 - Command jobs use queued_command.py and keep the original executable/arguments in original_argv. Explicit GPU reassignment config sync must apply to command tasks as well as private scientific tasks. Keep entry wrapping idempotent, and preserve POSIX exec identity, logging and exit receipts. Regression checks must exercise the already-loaded legacy runner path.
+
+- Automatic window capacity is per GPU UUID, with a separate CPU queue. Check each device head while preserving FIFO within the device. Claim must enforce the same per-device capacity under lock. A blocked/full GPU must not stall eligible heads on other GPUs.
