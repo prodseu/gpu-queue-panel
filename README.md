@@ -1,4 +1,4 @@
-# GPU Queue Panel — 0.5.0-rc.1
+# GPU Queue Panel — 0.5.0-rc.2
 
 多用户登录预发布版。每个程序归属于提交它的账号；普通用户查看、排序、取消自己的等待任务，管理员查看全部任务并设置全局并发和资源保护。仍通过本机网页 + SSH 工作，服务器不开放 HTTP 端口。
 
@@ -83,3 +83,15 @@ python qa_multiuser.py
 检查使用临时数据、模拟 NVIDIA 和本机临时端口，包含真实 CPU 子进程；不会连接服务器或启动训练。当前本地 Windows 已通过后端/HTTP 与三用户 Chromium 检查，Linux 专用命令入口/真实 tmux 和实际 GPU 集成仍需在独立 Linux 环境验证。检查结果见 [PRE_RELEASE.md](PRE_RELEASE.md)。
 
 本版不提供注册、找回密码、SSO、运行项强停、用户配额/公平调度或 OS 沙箱。管理员在服务器用 `users.py password USER` 重置密码。账号停用后其等待任务保留，运行任务自然完成。不要将 RC 直接覆盖部署到当前操作目录。
+
+## 等待任务切换 GPU
+
+等待 GPU 任务的设备栏提供 GPU 下拉框，选择目标卡后立即保存。后端查询当前 NVIDIA 设备并按 UUID 关联，任务保留原有全局位置和所属账号。按卡查看时，移走的任务会从当前卡列表消失，可在目标卡或总队列查看。普通用户只能切换自己的等待项，管理员可以管理全部等待项。CPU任务及运行/取消/完成任务不能在这里转换设备。
+
+```bash
+python cli.py move-gpu TASK_ID GPU-XXX
+```
+
+切换后仍需通过目标卡的显存、并发、外部进程和启动间隔检查。程序应遵循 CUDA_VISIBLE_DEVICES，训练内部使用逻辑卡号。通用 argv 包装器会设置所选 GPU UUID。私有科学执行器可在启动前调用 gpu_transfer.prepare_scientific_config，更新已登记任务配置中的 gpu/gpu_uuid/authorized_physical_gpu，并保存原配置备份。提交参数、预算、模型与等待序保持。
+
+本次 Linux 隔离集成 40 项检查通过，包含 qrun、CLI、train.py --queue、登录权限、GPU切换竞态与真实CPU任务。三用户 Chromium 检查覆盖等待任务切换后按卡刷新。实际 GPU 训练切卡仍取决于各训练程序是否遵循设备约定。

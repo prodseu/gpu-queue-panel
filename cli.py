@@ -14,12 +14,14 @@ def main():
     sub.add_parser('status')
     q=sub.add_parser('cancel');q.add_argument('id')
     q=sub.add_parser('reorder');q.add_argument('ids',nargs='+')
+    q=sub.add_parser('move-gpu');q.add_argument('id');q.add_argument('gpu_uuid')
     q=sub.add_parser('logs');q.add_argument('id');q.add_argument('--cursor',type=int,default=0)
     a=p.parse_args();config=load();session=read_session(a.session_file)
-    request=dict(action='state' if a.command=='status' else a.command,token=session['token'],csrf=session['csrf'])
-    if a.command in ('cancel','logs'):request['id']=a.id
+    request=dict(action='state' if a.command=='status' else 'move_gpu' if a.command=='move-gpu' else a.command,token=session['token'],csrf=session['csrf'])
+    if a.command in ('cancel','logs','move-gpu'):request['id']=a.id
+    if a.command=='move-gpu':request['gpu_uuid']=a.gpu_uuid
     if a.command=='logs':request['cursor']=a.cursor
-    if a.command in ('cancel','reorder'):
+    if a.command in ('cancel','reorder','move-gpu'):
         state=rpc(dict(action='state',token=session['token']),QueueStore(config['data_path']))
         request['revision']=state['revision']
     if a.command=='reorder':request['ids']=a.ids

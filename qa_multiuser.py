@@ -24,7 +24,7 @@ def check(out=None):
         class Client:
             def request(self,value):return rpc(value,store)
         errors=[]
-        with patch('process_monitor.collect',inventory):
+        with patch('process_monitor.collect',inventory),patch('gpu_transfer.gpu.snapshot',return_value=dict(ok=True,gpus=devices)):
             server=create_server(Client(),0);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             try:
                 with sync_playwright() as p:
@@ -55,6 +55,10 @@ def check(out=None):
                     alice.locator('[data-gpu-select="GPU-XXX-0"]').click();expect(alice.locator('.task[data-managed]')).to_have_count(2)
                     alice.locator('[data-id=A1][data-move="1"]').click()
                     expect(alice.locator('.task[data-managed]').first).to_have_attribute('data-id','A3')
+                    assert store.read()['order']==['A2','B1','A3','B2','A1']
+                    alice.locator('[data-gpu-target=A1]').select_option('GPU-XXX-1')
+                    expect(alice.locator('.task[data-managed]')).to_have_count(1)
+                    assert store.read()['tasks']['A1']['gpu_uuid']=='GPU-XXX-1'
                     assert store.read()['order']==['A2','B1','A3','B2','A1']
                     revision=store.read()['revision']
                     denied=alice.evaluate('''async revision=>{const me=await(await fetch('/api/me')).json();return(await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':me.csrf},body:JSON.stringify({action:'cancel',id:'B1',revision,owner_id:'alice'})})).status;}''',revision)

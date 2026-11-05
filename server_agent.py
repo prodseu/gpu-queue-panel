@@ -40,6 +40,13 @@ def snapshot(store,actor):
                          epochs=task.get('epochs',0), updates=task.get('updates',0), progress=progress,processes=inventory['tasks'].get(task_id,[]),
                          order=scoped['order'].index(task_id) + 1 if task_id in scoped['order'] else None))
     status_path=store.directory/'scheduler_status.json'
+    handoff_path=store.directory/'dispatcher_handoff.json'
+    if handoff_path.exists():
+        handoff=json.loads(handoff_path.read_text())
+        if handoff.get('state')=='active' and gpu.alive(handoff.get('new_agent')):
+            status_path=store.directory/'scheduler_status_handoff.json'
+            phase_path=store.directory/'controller_handoff.json'
+            if phase_path.exists():cached['controller']=json.loads(phase_path.read_text()).get('phase','')
     scheduler=json.loads(status_path.read_text()) if status_path.exists() else {}
     if not actor.admin:
         scheduler={k:v for k,v in scheduler.items() if k in ('time','window','halted')}
@@ -55,7 +62,7 @@ def rpc(request, store):
     accounts=Accounts(store.directory)
     action=request.get('action')
     if action=='login':return accounts.login(request.get('username'),request.get('password'))
-    mutating=action in ('logout','cancel','reorder','configure','submit')
+    mutating=action in ('logout','cancel','reorder','configure','submit','move_gpu')
     actor,session=accounts.session(request.get('token'))
     if mutating:actor,session=accounts.session(request.get('token'),request.get('csrf',''))
     if action=='me':return dict(user=actor.public(),**session)
@@ -71,6 +78,10 @@ def rpc(request, store):
         with path.open('rb') as f:
             f.seek(cursor);body=f.read(maximum)
         return dict(id=request['id'],text=body.decode('utf-8',errors='replace'),next_cursor=cursor+len(body))
+    if action=='move_gpu':
+        from gpu_transfer import move
+        move(store,request.get('id'),request.get('gpu_uuid'),request.get('revision'),actor)
+        return dict(snapshot(store,actor),csrf=session['csrf'])
     if action=='submit':
         from queue_submit import enroll
         return enroll(request['task'],store,actor,request.get('auto_id',False))

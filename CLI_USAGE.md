@@ -69,3 +69,5 @@ python users.py --session-file /XXX/alice.session.json logout
 排序需包含当前账号可管理的**全部等待 ID**；其他用户的位置保留。日志按字节游标、最多 32768 字节/次返回，只读已登记任务自己的 output.log，不接受任意路径。网页不提供任意命令提交，SSH RPC 的 submit 仅供已登录 CLI 使用。
 
 Codex 托管流程：先查看 RC 状态，保持授权预算和稳定 ID，用有效账号会话登记并复核；不重复启动、不自动重试失败项、不擅自接管现有训练。退出码 0 不等于科学验收通过，原有审计应保留在任务入口中。
+
+等待任务切换GPU使用 `python cli.py move-gpu TASK_ID GPU-XXX`。目标为当前NVIDIA完整UUID，排序位置保持，运行任务会拒绝切换。
