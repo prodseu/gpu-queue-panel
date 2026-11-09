@@ -1,6 +1,7 @@
 # Terminal command dispatch
 
-- v0.6.0 uses tmux_dispatch.py and one current.json. Use the user's existing Unix account and configured root/session.
+- v0.7.0 uses tmux_dispatch.py and one current.json. Use the user's existing Unix account and configured root/session.
+- web_view.py is a loopback-only SSH client, web_bridge.py reuses the same command functions. The terminal monitor remains the sole dispatcher. Browser mutations check revision under the JSON lock and use same-origin/CSRF protections. Terminal output access is restricted to tool-created recorded panes. Preserve terminal/CLI operation and single-JSON storage.
 - Save only user-authorized commands with finite training budgets. Use add, edit, dispatch and mode through this tool. No implicit import, replay or retry of historical experiments.
 - Fixed targets must be tool-created, identity-checked idle shells. Existing user panes are preserved. Unknown GPU processes are NVIDIA metadata only and read-only.
 - Preserve independent pending cancel/reorder, UUID device selection, per-GPU capacity and per-field -1 semantics. Both modes use admission checks. Memory thresholds are admission budgets, not allocator caps.

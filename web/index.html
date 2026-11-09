@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>训练终端 · GPU Dispatch</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<main>
+  <header><div><div class="eyebrow">GPU DISPATCH <span id="version"></span></div><h1>训练终端</h1><p id="connection">正在连接服务器…</p></div><div class="header-actions"><button id="new-terminal">＋ 新建终端</button><button id="add-command" class="primary">＋ 预存命令</button></div></header>
+  <div id="notice" role="status" hidden></div>
+  <section class="control-strip"><div class="mode"><button id="manual" aria-pressed="false">手动分发</button><button id="auto" aria-pressed="false">自动分发</button></div><button id="pause">暂停分发</button><span id="dispatcher"></span><span id="session" class="mono"></span></section>
+  <section id="gpu-cards" class="gpu-grid" aria-label="显卡状态"></section>
+  <section class="panel"><div class="section-heading"><div><h2>当前命令 <span id="command-count" class="muted"></span></h2><p id="command-hint">与服务器终端同步，点击显卡查看对应命令。</p></div><div class="tools"><button id="all-gpus" class="quiet">全部设备</button><button id="clear" class="quiet">清除已结束</button></div></div>
+    <div class="table-scroll"><table class="commands"><thead><tr><th>命令与工作目录</th><th>状态</th><th>GPU / 预算</th><th>终端</th><th>操作</th></tr></thead><tbody id="commands"></tbody></table></div><div id="empty" class="empty" hidden>当前没有命令，点击“预存命令”添加。</div>
+  </section>
+  <section class="panel"><div class="section-heading"><div><h2>显卡计算进程 <span class="tag">只读</span></h2><p>显示 NVIDIA 提供的名称和显存占用。</p></div></div><div class="table-scroll"><table><thead><tr><th>GPU</th><th>PID</th><th>程序名称</th><th>显存</th><th>权限</th></tr></thead><tbody id="processes"></tbody></table></div></section>
+  <section class="panel"><div class="section-heading"><div><h2>分发限制</h2><p>手动和自动均检查。显存设置控制启动准入，每项填 -1 可关闭对应限制。</p></div></div><form id="limits" class="limits-grid"><label>每卡运行窗口<input name="window" type="number" required></label><label>每卡预留显存 / MiB<input name="reserve_mib" type="number" required></label><label>整卡显存上限 / %<input name="memory_percent" type="number" required></label><label>计算利用率上限 / %<input name="utilization" type="number" required></label><button class="primary" type="submit">保存限制</button></form></section>
+  <footer>命令在服务器 tmux 终端执行 · 网页通过本机 SSH 连接</footer>
+</main>
+<dialog id="command-dialog"><form id="command-form"><div class="dialog-heading"><h2 id="dialog-title">预存命令</h2><button type="button" data-close="command-dialog" class="quiet">关闭</button></div><label>命令<textarea name="command" rows="5" placeholder="cd project/model && /path/to/python train.py --epochs 20" required></textarea></label><div class="form-grid"><label>运行 GPU<select name="gpu"></select></label><label>预计峰值显存 / MiB<input name="peak_mib" type="number" value="8192" required></label><label>目标终端<select name="target"></select></label><label>工作目录<input name="cwd" placeholder="留空使用默认根目录"></label></div><p id="root-hint" class="muted"></p><p id="save-hint" class="muted"></p><div class="dialog-actions"><button type="button" data-close="command-dialog">取消</button><button id="save-command" type="submit" class="primary">保存命令</button></div></form></dialog>
+<dialog id="terminal-dialog" class="terminal-dialog"><div class="dialog-heading"><h2 id="terminal-title">终端输出</h2><div><button id="refresh-terminal">刷新</button><button data-close="terminal-dialog">关闭</button></div></div><pre id="terminal-output"></pre></dialog>
+</body></html>

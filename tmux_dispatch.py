@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-VERSION = '0.6.0'
+VERSION = '0.7.0'
 ACTIVE = {'launching', 'running', 'orphaned'}
 FINISHED = {'done', 'failed', 'canceled', 'interrupted'}
 DEFAULT_LIMITS = dict(window=1, reserve_mib=8192, memory_percent=90, utilization=-1)
@@ -40,8 +40,9 @@ def alive(saved):
 
 
 class State:
-    def __init__(self, path):
+    def __init__(self, path, expected_revision=None):
         self.path = Path(path).expanduser().resolve()
+        self.expected_revision = expected_revision
 
     @contextlib.contextmanager
     def locked(self):
@@ -72,6 +73,8 @@ class State:
     def change(self, action):
         with self.locked():
             value = self.read()
+            if self.expected_revision is not None and value['revision'] != self.expected_revision:
+                raise ValueError('状态已更新，请刷新后重试')
             result = action(value)
             value['revision'] += 1
             self.save(value)
@@ -248,9 +251,11 @@ def create_terminal(value, name='terminal'):
 
 
 def new_shell(store):
-    terminal = create_terminal(store.read())
-    store.change(lambda v: v['terminals'].append(terminal))
-    return terminal['pane']
+    def create(value):
+        terminal = create_terminal(value)
+        value['terminals'].append(terminal)
+        return terminal['pane']
+    return store.change(create)
 
 
 def deliver(store, item):
