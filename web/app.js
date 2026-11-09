@@ -61,7 +61,7 @@ function render() {
     const jobs=state.commands.filter(item=>item.gpu===device.uuid);
     const used=device.used==null?'—':(device.used/1024).toFixed(1),total=device.total==null?'—':(device.total/1024).toFixed(1);
     const memory=device.total ? Math.min(100,Math.max(0,device.used/device.total*100)) : 0;
-    return `<button class="gpu-card" data-gpu="${esc(device.uuid)}" aria-pressed="${selectedGpu===device.uuid}"><div class="gpu-heading">GPU ${device.index}<span>实时监控</span></div><div class="gpu-name">${esc(device.name)}</div><div class="metric"><div>显存<strong>${used} / ${total} GiB</strong></div><span class="meter"><i data-width="${memory}"></i></span></div><div class="metric"><div>计算利用率<strong>${device.util??'—'}%</strong></div><span class="meter compute"><i data-width="${device.util??0}"></i></span></div><div class="gpu-counts">运行 ${jobs.filter(item=>active.includes(item.state)).length} · 等待 ${jobs.filter(item=>item.state==='pending').length}</div></button>`;
+    return `<button class="gpu-card" data-gpu="${esc(device.uuid)}" aria-pressed="${selectedGpu===device.uuid}"><div class="gpu-heading">GPU ${device.index}<span>最近 5 分钟</span></div><div class="gpu-name">${esc(device.name)}</div><div class="metric"><div>显存<strong>${used} / ${total} GiB</strong></div><span class="meter"><i data-width="${memory}"></i></span></div><div class="metric"><div>计算利用率<strong>${device.util??'—'}%</strong></div><span class="meter compute"><i data-width="${device.util??0}"></i></span></div><canvas class="gpu-chart" data-history="${esc(device.uuid)}" aria-label="GPU ${device.index} 最近5分钟计算利用率和显存占用率，纵轴0至100%"></canvas><div class="chart-legend"><span class="compute-key">计算利用率</span><span class="memory-key">显存占用率</span></div><div class="gpu-counts">运行 ${jobs.filter(item=>active.includes(item.state)).length} · 等待 ${jobs.filter(item=>item.state==='pending').length}</div></button>`;
   }).join('');
   document.querySelectorAll('[data-width]').forEach(el=>el.style.width=el.dataset.width+'%');
   const visible = state.commands.filter(item=>selectedGpu===null||item.gpu===selectedGpu);
@@ -73,11 +73,53 @@ function render() {
     const terminal=item.pane || (item.target!=='new' ? item.target : null);
     return `<tr><td><span class="command-text">${esc(item.command)}</span><div class="command-meta">${esc(item.id)} · ${esc(item.cwd)}</div>${item.reason?`<div class="command-meta">${esc(item.reason)}</div>`:''}</td><td><span class="state ${esc(item.state)}">${labels[item.state]||esc(item.state)}</span>${item.requested?'<div class="command-meta">已请求分发</div>':''}${item.exit_code!=null?`<div class="command-meta">退出码 ${item.exit_code}</div>`:''}</td><td>${gpuName(item.gpu)}<div class="command-meta">${item.peak_mib===-1?'峰值预算不限':item.peak_mib+' MiB'}</div></td><td>${terminal?`<button data-terminal="${esc(terminal)}">${esc(terminal)} ↗</button>`:'新建任务窗'}</td><td><div class="row-actions">${pending?`<button data-action="dispatch" data-id="${item.id}" ${state.paused?'disabled':''}>分发</button><button data-action="edit" data-id="${item.id}">编辑 / 切 GPU</button><button data-action="up" data-id="${item.id}">↑</button><button data-action="down" data-id="${item.id}">↓</button><button data-action="cancel" data-id="${item.id}">取消</button>`:'<span class="muted">'+(active.includes(item.state)?'在终端执行':'已结束')+'</span>'}</div></td></tr>`;
   }).join('');
-  $('#processes').innerHTML=state.inventory.processes.length?state.inventory.processes.map(process=>`<tr><td>${gpuName(process.gpu)}</td><td class="mono">${process.pid}</td><td class="mono">${esc(process.name)}</td><td>${process.memory==null?'—':process.memory+' MiB'}</td><td><span class="tag">不可操作</span></td></tr>`).join(''):'<tr><td colspan="5" class="muted">当前未检测到计算进程</td></tr>';
+  const processes=[...state.inventory.processes].sort((a,b)=>Number(a.managed)-Number(b.managed));
+  $('#processes').innerHTML=processes.length?processes.map(process=>`<tr data-process="${process.pid}"><td>${gpuName(process.gpu)}</td><td class="mono">${process.pid}</td><td class="mono">${esc(process.name)}</td><td>${process.managed?'托管程序':'外部程序'} / ${esc(process.type||'C')}</td><td>${process.memory==null?'—':process.memory+' MiB'}</td><td><span class="tag">不可编辑</span></td></tr>`).join(''):'<tr><td colspan="6" class="muted">当前未检测到显卡进程</td></tr>';
+  drawCharts();
   if(!($('#limits').contains(document.activeElement) && document.activeElement.tagName==='INPUT')) {
     Object.entries(state.limits).forEach(([key,value])=>$('#limits').elements[key].value=value);
   }
 }
+
+function drawCharts() {
+  if(!state) return;
+  const now=state.server_time || Date.now()/1000;
+  document.querySelectorAll('[data-history]').forEach(canvas=>{
+    const width=canvas.getBoundingClientRect().width;
+    if(!width) return;
+    const height=130, ratio=window.devicePixelRatio||1;
+    canvas.width=Math.round(width*ratio);
+    canvas.height=Math.round(height*ratio);
+    const ctx=canvas.getContext('2d');
+    ctx.scale(ratio,ratio);
+    const left=25,right=width-7,top=10,bottom=height-23;
+    ctx.font='10px sans-serif';
+    [0,50,100].forEach(value=>{
+      const y=bottom-(bottom-top)*value/100;
+      ctx.strokeStyle='#2b3a4c';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();
+      ctx.fillStyle='#8e9cae';ctx.textAlign='right';ctx.fillText(String(value),left-5,y+3);
+    });
+    ctx.fillStyle='#8e9cae';ctx.textAlign='left';ctx.fillText('−5m',left,height-5);
+    ctx.textAlign='right';ctx.fillText('现在',right,height-5);
+    const points=(state.history?.[canvas.dataset.history]||[]).filter(point=>point.t>=now-300 && point.t<=now);
+    [['compute','#6cdbb0'],['memory','#7bc3ff']].forEach(([field,color])=>{
+      ctx.strokeStyle=color;ctx.lineWidth=1.7;ctx.beginPath();
+      let previous=null,last=null;
+      for(const point of points) {
+        if(!Number.isFinite(point[field])) { previous=null;continue; }
+        const x=left+(right-left)*(point.t-(now-300))/300;
+        const y=bottom-(bottom-top)*Math.max(0,Math.min(100,point[field]))/100;
+        if(previous===null || point.t-previous>8) ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+        previous=point.t;last=[x,y];
+      }
+      ctx.stroke();
+      if(last) {ctx.fillStyle=color;ctx.beginPath();ctx.arc(last[0],last[1],2,0,2*Math.PI);ctx.fill();}
+    });
+  });
+}
+window.addEventListener('resize',()=>requestAnimationFrame(drawCharts));
 
 function commandHint() {
   const automatic=state.mode==='auto' && !state.paused;

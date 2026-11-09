@@ -4,19 +4,35 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import tmux_dispatch as app
+import gpu_history
 
 
 def snapshot(store):
     state = store.read()
+    now = time.time()
+    telemetry = state.get('telemetry', {})
+    info = telemetry.get('inventory') if 0 <= now-telemetry.get('sampled', 0) <= 8 else None
+    if info is None:
+        info = gpu_history.sample()
+        now = time.time()
+    managed = set()
+    for item in state['commands']:
+        if item['state'] in app.ACTIVE:
+            managed.update(app.descendants(item.get('child')))
+    info = dict(info, processes=[dict(row, managed=row['pid'] in managed, editable=False)
+                                for row in info['processes']])
     commands = [{key: value for key, value in item.items() if key not in ('nonce', 'runner', 'child')}
                 for item in state['commands']]
     return dict(version=app.VERSION, revision=state['revision'], session=state['session'],
                 root=state['root'], mode=state['mode'], paused=state['paused'], limits=state['limits'],
                 commands=commands, terminals=[item['pane'] for item in state['terminals']],
                 default_target=state['default_target'], monitor_running=app.alive(state.get('monitor')),
-                inventory=app.inventory())
+                inventory=info, server_time=now, sampled=telemetry.get('sampled'),
+                history=gpu_history.prune(telemetry.get('history', {}), now), history_window_seconds=300,
+                sampler_running=app.alive(telemetry.get('identity')))
 
 
 def rpc(path, request):

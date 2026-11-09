@@ -1,6 +1,7 @@
 # Terminal command dispatch
 
-- v0.7.0 uses tmux_dispatch.py and one current.json. Use the user's existing Unix account and configured root/session.
+- v0.7.1 uses tmux_dispatch.py and one current.json. Use the user's existing Unix account and configured root/session.
+- gpu_history.py is a sampler only, never a dispatcher. Its unique lock and gpu-history tmux window maintain a strict rolling 300-second telemetry cache in the same JSON, without changing command revision. Deploy source atomically around live launches. Preserve live training and the existing monitor when attaching the sampler.
 - web_view.py is a loopback-only SSH client, web_bridge.py reuses the same command functions. The terminal monitor remains the sole dispatcher. Browser mutations check revision under the JSON lock and use same-origin/CSRF protections. Terminal output access is restricted to tool-created recorded panes. Preserve terminal/CLI operation and single-JSON storage.
 - Save only user-authorized commands with finite training budgets. Use add, edit, dispatch and mode through this tool. No implicit import, replay or retry of historical experiments.
 - Fixed targets must be tool-created, identity-checked idle shells. Existing user panes are preserved. Unknown GPU processes are NVIDIA metadata only and read-only.

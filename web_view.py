@@ -101,7 +101,7 @@ def create_server(client, port):
             if not self.origin():
                 return self.send(403, dict(error='请求来源不匹配'))
             if self.path == '/health':
-                return self.send(200, dict(application='gpu-tmux-web', version='0.7.0', target=getattr(client, 'fingerprint', '')))
+                return self.send(200, dict(application='gpu-tmux-web', version='0.7.1', target=getattr(client, 'fingerprint', '')))
             if self.path == '/api/session':
                 return self.send(200, dict(csrf=csrf), cookie=COOKIE+'_'+str(self.server.server_port)+'='+csrf+'; Path=/; HttpOnly; SameSite=Strict')
             files = {'/': ('index.html', 'text/html; charset=utf-8'),

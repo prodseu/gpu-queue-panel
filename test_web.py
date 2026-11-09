@@ -22,9 +22,12 @@ class BridgeTests(unittest.TestCase):
         self.store.initialize(self.root, 'fixture')
         self.inventory = patch('tmux_dispatch.inventory',return_value=dict(devices=[],processes=[],error=None))
         self.inventory.start()
+        self.sample = patch('gpu_history.sample',return_value=dict(devices=[],processes=[],error=None))
+        self.sample.start()
 
     def tearDown(self):
         self.inventory.stop()
+        self.sample.stop()
         self.temp.cleanup()
 
     def request(self, action, **values):

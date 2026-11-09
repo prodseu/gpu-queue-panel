@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-VERSION = '0.7.0'
+VERSION = '0.7.1'
 ACTIVE = {'launching', 'running', 'orphaned'}
 FINISHED = {'done', 'failed', 'canceled', 'interrupted'}
 DEFAULT_LIMITS = dict(window=1, reserve_mib=8192, memory_percent=90, utilization=-1)
@@ -578,8 +578,10 @@ def screen(window, store):
 
 
 def start(store):
+    import gpu_history
     value = store.read()
     if alive(value.get('monitor')):
+        gpu_history.start(store)
         print('Monitor already running in ' + value['session'])
         return
     # Startup is serialized against another start and the tmux launch is not retried.
@@ -598,6 +600,7 @@ def start(store):
         pane = tmux('new-window', '-d', '-P', '-F', '#{pane_id}', '-t', value['session'] + ':',
                     '-n', 'gpu-monitor', '-c', value['root'], text + '; exec /bin/bash --noprofile --norc')
     print('Monitor launched in ' + value['session'] + ':gpu-monitor (' + pane + ')')
+    gpu_history.start(store)
 
 
 def main():
